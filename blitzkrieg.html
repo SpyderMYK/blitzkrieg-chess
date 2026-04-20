@@ -245,6 +245,15 @@
     gap: 4px;
     font-size: 13px;
   }
+  /* Compact volume slider sits inline with the Voice checkbox.
+     Width is deliberately short so it doesn't crowd mobile layouts. */
+  .voice-volume {
+    width: 72px;
+    height: 16px;
+    accent-color: #56b4e9;
+    margin-left: 2px;
+    cursor: pointer;
+  }
 
   .pawn-tries {
     font-size: 15px;
@@ -651,6 +660,7 @@
       <label class="sound-toggle">
         <input type="checkbox" id="voiceToggle" checked />
         Voice
+        <input type="range" id="voiceVolume" class="voice-volume" min="0" max="1" step="0.05" value="0.5" aria-label="Voice volume" />
       </label>
     </div>
     <div class="connection-banner" id="connectionBanner"></div>
@@ -790,6 +800,13 @@ function voiceEnabled() {
   const el = document.getElementById('voiceToggle');
   return el ? el.checked : true;
 }
+// Volume for TTS, 0.0–1.0. Read from the slider, fall back to 0.5.
+function voiceVolume() {
+  const el = document.getElementById('voiceVolume');
+  if (!el) return 0.5;
+  const v = parseFloat(el.value);
+  return (isFinite(v) && v >= 0 && v <= 1) ? v : 0.5;
+}
 // Spoken announcements via the Web Speech API. No external dependency;
 // uses whatever default voice the browser has installed. Respects the
 // Voice toggle. Queues naturally — multiple announcements (capture +
@@ -807,7 +824,7 @@ function speak(text) {
     const u = new SpeechSynthesisUtterance(text);
     u.rate = 1.0;
     u.pitch = 1.0;
-    u.volume = 1.0;
+    u.volume = voiceVolume();
     window.speechSynthesis.speak(u);
   } catch (e) { /* ignore — speech is best-effort */ }
 }
@@ -2414,11 +2431,44 @@ shareGameBtn.addEventListener('click', () => {
 // ====================================================================
 // BOOT
 // ====================================================================
+// Persist voice volume across sessions so the user doesn't have to re-dial
+// it every time they reload the page.
+const VOICE_VOLUME_KEY = 'blitz:voiceVolume';
+function loadVoiceVolumePref() {
+  try {
+    const raw = localStorage.getItem(VOICE_VOLUME_KEY);
+    if (raw == null) return;
+    const v = parseFloat(raw);
+    if (isFinite(v) && v >= 0 && v <= 1) {
+      const el = document.getElementById('voiceVolume');
+      if (el) el.value = String(v);
+    }
+  } catch (e) { /* ignore */ }
+}
+function saveVoiceVolumePref() {
+  try {
+    const el = document.getElementById('voiceVolume');
+    if (el) localStorage.setItem(VOICE_VOLUME_KEY, el.value);
+  } catch (e) { /* ignore */ }
+}
+
 async function boot() {
   // Initial lobby render
   buildBoard();
   renderBoard();
   showLobby();
+  // Restore voice volume from previous session and wire the slider so
+  // changes persist. Also preview the new volume with a quick sample when
+  // the user releases the slider, so they can hear what they've picked.
+  loadVoiceVolumePref();
+  const volEl = document.getElementById('voiceVolume');
+  if (volEl) {
+    volEl.addEventListener('input', saveVoiceVolumePref);
+    volEl.addEventListener('change', () => {
+      saveVoiceVolumePref();
+      speak('Volume');
+    });
+  }
 
   // If URL has a code and we have a token, try to resume as player.
   const code = readUrlCode();
