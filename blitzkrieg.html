@@ -1,0 +1,2316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Blitzkrieg Chess</title>
+<style>
+  * { box-sizing: border-box; }
+  :root {
+    /* Chess-square size, scaled on narrow screens via media queries below. */
+    --sq: 56px;
+  }
+  html, body { overscroll-behavior: none; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #2c2c2c;
+    color: #e8e8e8;
+    min-height: 100vh;
+    padding: 20px;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  h1 {
+    margin: 0 0 4px 0;
+    text-align: center;
+    letter-spacing: 2px;
+    font-weight: 300;
+  }
+  .subtitle {
+    text-align: center;
+    color: #999;
+    margin-bottom: 20px;
+    font-size: 13px;
+    font-style: italic;
+  }
+  .game {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+    flex-wrap: wrap;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  .board-area {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .controls {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+  }
+  button {
+    background: #555;
+    color: #eee;
+    border: 1px solid #777;
+    padding: 6px 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  button:hover:not(:disabled) { background: #666; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.primary { background: #4a7c4a; border-color: #5a8c5a; }
+  button.primary:hover:not(:disabled) { background: #5a8c5a; }
+  select, input[type=text], input[type=number] {
+    background: #555;
+    color: #eee;
+    border: 1px solid #777;
+    padding: 6px 8px;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  .status {
+    margin: 8px 0;
+    padding: 8px 12px;
+    background: #3a3a3a;
+    border-left: 4px solid #888;
+    font-size: 14px;
+    width: 100%;
+    max-width: 560px;
+    text-align: center;
+    border-radius: 2px;
+  }
+  .status.turn { border-left-color: #6a9; }
+  .status.check { border-left-color: #e69f00; background: #4a3a1a; }
+  .status.gameover { border-left-color: #e69f00; background: #4a3a1a; }
+  .status.warning { border-left-color: #cc79a7; background: #3a2c33; }
+
+  .board {
+    display: grid;
+    grid-template-columns: calc(var(--sq) * 0.36) repeat(8, var(--sq));
+    grid-template-rows: repeat(8, var(--sq)) calc(var(--sq) * 0.36);
+    user-select: none;
+    -webkit-user-select: none;
+    background: #1a1a1a;
+    padding: 6px;
+    border-radius: 4px;
+    touch-action: manipulation;
+  }
+  .sq {
+    width: var(--sq);
+    height: var(--sq);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: calc(var(--sq) * 0.78);
+    line-height: 1;
+    cursor: pointer;
+    position: relative;
+    transition: background 0.12s;
+    touch-action: manipulation;
+  }
+  .sq.light { background: #e8d8b4; }
+  .sq.dark { background: #a08060; }
+  .sq.selected { outline: 3px solid #ffd700; outline-offset: -3px; }
+  .sq.target { box-shadow: inset 0 0 0 3px rgba(100, 200, 100, 0.7); }
+  .sq.lastmove { background-color: #d4c47a !important; }
+  .sq.lastmove.dark { background-color: #8b7548 !important; }
+  .sq.check { background-color: #e69f00 !important; }
+  .sq.capturereveal { animation: flash 0.8s ease-out; }
+  @keyframes flash {
+    0% { background-color: #ffcc00 !important; }
+    100% { }
+  }
+  .piece { pointer-events: none; }
+  .piece.white { color: #fff; text-shadow: 0 0 2px #000, 0 0 3px #000, 1px 1px 1px #000; }
+  .piece.black { color: #111; text-shadow: 0 0 2px #fff, 0 0 3px #888; }
+  .piece.revealed { opacity: 0.78; filter: drop-shadow(0 0 4px #ffcc66); }
+  .piece.ghost { opacity: 0.28; }
+
+  .coord {
+    font-size: 11px;
+    color: #888;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .sidebar {
+    width: 340px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .panel {
+    background: #3a3a3a;
+    border-radius: 4px;
+    padding: 10px 12px;
+  }
+  .panel h3 {
+    margin: 0 0 6px 0;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #aaa;
+    font-weight: 500;
+  }
+  .log {
+    max-height: 360px;
+    overflow-y: auto;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  /* Log palette — chosen for deuteranopia/protanopia (red-green) accessibility.
+     Colors come from the Okabe-Ito colorblind-safe palette, paired with
+     typography cues (bold, italic, underline) so color is never the sole signal. */
+  .log .entry { margin: 2px 0; }
+  .log .turn-header { color: #d0d0d0; margin-top: 6px; font-weight: bold; }
+  .log .announce { color: #f0e442; }                                            /* yellow   — info */
+  .log .capture  { color: #cc79a7; font-weight: bold; }                         /* magenta — captures */
+  .log .check    { color: #e69f00; font-weight: bold; text-decoration: underline; } /* amber   — check */
+  .log .illegal  { color: #a0a0a0; font-style: italic; }                        /* gray    — rejected */
+  .log .ok       { color: #56b4e9; }                                            /* sky blue — accepted */
+  .log .system   { color: #9dd2ff; }
+
+  .move-input {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .move-input input {
+    flex: 1;
+    min-width: 0;
+    background: #2a2a2a;
+    color: #eee;
+    border: 1px solid #666;
+    padding: 8px 8px;
+    border-radius: 3px;
+    font-family: "SF Mono", Menlo, monospace;
+    /* 16px prevents iOS Safari from zooming the page on focus. */
+    font-size: 16px;
+  }
+
+  .captured-row {
+    min-height: 30px;
+    font-size: 22px;
+    line-height: 1;
+    letter-spacing: 4px;
+    padding: 6px 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .captured-row .label {
+    font-size: 11px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-right: 6px;
+    min-width: 70px;
+    text-shadow: none;
+  }
+  .captured-row .token {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 0 1.5px #e6dcc0, inset 0 0 0 1px rgba(0,0,0,0.35);
+  }
+  .captured-row .piece.white {
+    color: #fff !important;
+    text-shadow: 0 0 2px #000, 0 0 3px #000, 1px 1px 1px #000 !important;
+  }
+  .captured-row .piece.black {
+    color: #111 !important;
+    text-shadow: 0 0 2px #fff, 0 0 4px #fff, 0 0 2px #eee !important;
+  }
+  .captured-row.mine { color: #2a2a2a; }
+  .captured-row.theirs { color: #f4ead1; }
+  .sound-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+  }
+
+  .pawn-tries {
+    font-size: 15px;
+    color: #f4d03f;
+    font-weight: bold;
+    text-align: center;
+    padding: 4px;
+  }
+  .pawn-tries.none { color: #666; font-weight: normal; }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal {
+    background: #3a3a3a;
+    padding: 20px;
+    border-radius: 6px;
+    text-align: center;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+    max-width: 90vw;
+  }
+  .modal h2 { margin-top: 0; }
+  .modal .piece-choice {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-top: 10px;
+  }
+  .modal .piece-choice button {
+    font-size: 36px;
+    padding: 8px 14px;
+    width: 60px;
+  }
+
+  .rules {
+    font-size: 12px;
+    line-height: 1.5;
+    color: #bbb;
+  }
+  .rules b { color: #ddd; }
+  .rules.history p { margin: 0 0 8px 0; }
+  .rules.history p:last-child { margin-bottom: 0; }
+  .rules.history a {
+    color: #9dd2ff;
+    text-decoration: none;
+    border-bottom: 1px dotted #9dd2ff;
+  }
+  .rules.history a:hover { color: #c9e7ff; }
+  .rules.history .dedication {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid #4a4a4a;
+    font-style: italic;
+    color: #d6c58a;
+    text-align: center;
+  }
+  .rules.history .knight-figure {
+    margin: 0 0 10px 0;
+    padding: 0;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #1d1d1d;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .rules.history .knight-figure img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .rules.history .knight-figure figcaption {
+    font-size: 11px;
+    color: #c9c0a3;
+    text-align: center;
+    padding: 6px 8px;
+    background: #2a2520;
+    border-top: 1px solid #3a342c;
+    letter-spacing: 0.3px;
+  }
+  .rules.history .knight-figure figcaption b { color: #efe3bd; }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background-image: url("knight.jpg");
+    background-size: cover;
+    background-position: center;
+    opacity: 0.2;
+    pointer-events: none;
+  }
+
+  /* ---------- Lobby ---------- */
+  .lobby {
+    max-width: 760px;
+    margin: 20px auto 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .lobby-modes {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .mode-btn {
+    background: #3a3a3a;
+    border: 1px solid #555;
+    color: #eee;
+    border-radius: 6px;
+    padding: 14px 16px;
+    text-align: left;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .mode-btn:hover:not(:disabled) { background: #484848; border-color: #777; }
+  .mode-btn.active { background: #4a5a7c; border-color: #6a7a9c; }
+  .mode-btn h3 {
+    margin: 0 0 4px 0;
+    font-size: 15px;
+    color: #fff;
+    letter-spacing: 0.5px;
+  }
+  .mode-btn p {
+    margin: 0;
+    font-size: 12px;
+    color: #bbb;
+    line-height: 1.4;
+  }
+  .lobby-panel {
+    background: #3a3a3a;
+    border-radius: 6px;
+    padding: 16px;
+    display: none;
+  }
+  .lobby-panel.show { display: block; }
+  .lobby-panel h3 {
+    margin: 0 0 10px 0;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #aaa;
+    font-weight: 500;
+  }
+  .form-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .form-row label {
+    font-size: 13px;
+    color: #ccc;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .form-row input[type=number] { width: 70px; }
+  .form-row input.code-input {
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 18px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    padding: 8px 12px;
+    width: 160px;
+    text-align: center;
+  }
+
+  .code-display {
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 28px;
+    letter-spacing: 8px;
+    color: #f4d03f;
+    text-align: center;
+    padding: 8px 12px;
+    background: #2a2a2a;
+    border-radius: 4px;
+    margin: 10px 0;
+    user-select: all;
+  }
+  .share-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin: 8px 0;
+  }
+  .share-row input {
+    flex: 1;
+    min-width: 0;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    background: #2a2a2a;
+  }
+
+  /* ---------- Clock ---------- */
+  .clock {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    background: #2a2a2a;
+    border: 1px solid #555;
+    border-radius: 4px;
+    font-family: "SF Mono", Menlo, monospace;
+    min-width: 120px;
+    margin: 3px 0;
+    font-size: 16px;
+    letter-spacing: 1px;
+  }
+  .clock .clock-label {
+    font-size: 11px;
+    color: #aaa;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-right: 10px;
+  }
+  .clock .clock-time { color: #eee; font-weight: bold; }
+  .clock.active { border-color: #6a9; background: #2e3830; }
+  .clock.active .clock-time { color: #b6f0b6; }
+  .clock.low .clock-time { color: #ff8c3c; }
+  .clock.flagged .clock-time { color: #ff5c5c; }
+  .clock.paused { opacity: 0.55; }
+
+  .clocks-outer {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    max-width: 560px;
+  }
+  .side-banner {
+    font-size: 12px;
+    color: #aaa;
+    padding: 2px 8px;
+    margin: 3px 0;
+  }
+  .connection-banner {
+    background: #4a3a1a;
+    border-left: 4px solid #e69f00;
+    color: #f0e442;
+    padding: 6px 12px;
+    font-size: 13px;
+    width: 100%;
+    max-width: 560px;
+    border-radius: 2px;
+    margin: 6px 0;
+    text-align: center;
+    display: none;
+  }
+  .connection-banner.show { display: block; }
+
+  /* ------------------------------------------------------------------
+     Responsive / touch-device styles.
+     ------------------------------------------------------------------ */
+  @media (max-width: 1100px) {
+    body { padding: 14px; }
+    :root { --sq: min(9vw, 56px); }
+    .sidebar { width: 100%; max-width: 560px; }
+    .log { max-height: 260px; }
+    button, select { font-size: 14px; padding: 8px 12px; }
+    .controls { gap: 10px; }
+    .lobby-modes { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 700px) {
+    body { padding: 8px; }
+    :root { --sq: min(11.2vw, 52px); }
+    h1 { font-size: 24px; letter-spacing: 1px; }
+    .subtitle { font-size: 12px; margin-bottom: 12px; }
+    .panel { padding: 8px 10px; }
+    .captured-row { font-size: 20px; letter-spacing: 3px; }
+    .captured-row .label { min-width: 54px; font-size: 10px; }
+  }
+  @media (hover: none) and (pointer: coarse) {
+    button:hover:not(:disabled) { background: #555; }
+    .sq { cursor: default; }
+  }
+</style>
+</head>
+<body>
+<h1>BLITZKRIEG</h1>
+<div class="subtitle">Chess in the fog &mdash; you see only your own pieces. A referee adjudicates.</div>
+
+<!-- =========================== LOBBY =========================== -->
+<div class="lobby" id="lobby">
+  <div class="lobby-modes" id="lobbyModes">
+    <button class="mode-btn" data-mode="ai">
+      <h3>Play vs Computer</h3>
+      <p>Play against the AI on this device. Fast to start, no network needed.</p>
+    </button>
+    <button class="mode-btn" data-mode="create-online">
+      <h3>Create Online Game</h3>
+      <p>Start a game and share a code with a friend. Play from anywhere.</p>
+    </button>
+    <button class="mode-btn" data-mode="join-online">
+      <h3>Join by Code</h3>
+      <p>Have a 5-letter code? Enter it to join an online game as the second player.</p>
+    </button>
+    <button class="mode-btn" data-mode="spectate">
+      <h3>Spectate a Game</h3>
+      <p>Watch a live online game with <b>both sides</b> of the board visible.</p>
+    </button>
+  </div>
+
+  <!-- AI setup -->
+  <div class="lobby-panel" id="aiPanel">
+    <h3>Play vs Computer</h3>
+    <div class="form-row">
+      <label>Play as:
+        <select id="colorSelect">
+          <option value="w">White</option>
+          <option value="b">Black</option>
+        </select>
+      </label>
+      <label>AI strength:
+        <select id="aiSelect">
+          <option value="easy">Easy</option>
+          <option value="normal" selected>Normal</option>
+          <option value="hard">Hard</option>
+        </select>
+      </label>
+      <button class="primary" id="startAiBtn">Start Game</button>
+      <button id="aiCancelBtn">Back</button>
+    </div>
+  </div>
+
+  <!-- Create online -->
+  <div class="lobby-panel" id="createPanel">
+    <h3>Create Online Game</h3>
+    <div class="form-row">
+      <label>Time: <input type="number" id="tcMin" min="1" max="180" step="1" value="10"></label>
+      <label>minutes + <input type="number" id="tcInc" min="0" max="60" step="1" value="5"> sec / move</label>
+    </div>
+    <div class="form-row">
+      <label>You play:
+        <select id="createColor">
+          <option value="random" selected>Random</option>
+          <option value="w">White</option>
+          <option value="b">Black</option>
+        </select>
+      </label>
+      <button class="primary" id="createBtn">Create Game</button>
+      <button id="createCancelBtn">Back</button>
+    </div>
+    <div class="rules">Fischer-style clock: each side starts with the chosen time; every completed move adds the increment.</div>
+  </div>
+
+  <!-- Join -->
+  <div class="lobby-panel" id="joinPanel">
+    <h3>Join by Code</h3>
+    <div class="form-row">
+      <input type="text" class="code-input" id="joinCode" maxlength="5" placeholder="ABCDE" autocomplete="off" autocapitalize="characters" />
+      <button class="primary" id="joinBtn">Join Game</button>
+      <button id="joinCancelBtn">Back</button>
+    </div>
+  </div>
+
+  <!-- Spectate -->
+  <div class="lobby-panel" id="spectatePanel">
+    <h3>Spectate a Game</h3>
+    <div class="form-row">
+      <input type="text" class="code-input" id="spectateCode" maxlength="5" placeholder="ABCDE" autocomplete="off" autocapitalize="characters" />
+      <button class="primary" id="spectateBtn">Spectate</button>
+      <button id="spectateCancelBtn">Back</button>
+    </div>
+    <div class="rules">Spectators see <b>both</b> sides of the board in real time.</div>
+  </div>
+
+  <!-- Waiting -->
+  <div class="lobby-panel" id="waitingPanel">
+    <h3>Waiting for opponent</h3>
+    <p>Share this code or link with your opponent:</p>
+    <div class="code-display" id="waitingCode">-----</div>
+    <div class="share-row">
+      <input type="text" id="shareLink" readonly />
+      <button id="copyLinkBtn">Copy</button>
+    </div>
+    <div class="form-row" style="justify-content:center;">
+      <button id="cancelWaitingBtn">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- =========================== GAME =========================== -->
+<div class="game" id="gameRoot" style="display:none;">
+  <div class="board-area">
+    <div class="controls" id="gameControls">
+      <span id="modeLabel" class="side-banner"></span>
+      <button id="newGameBtn">Leave Game</button>
+      <button id="resignBtn">Resign</button>
+      <button id="shareGameBtn" style="display:none;">Share Link</button>
+      <label class="sound-toggle">
+        <input type="checkbox" id="soundToggle" checked />
+        Sound
+      </label>
+    </div>
+    <div class="connection-banner" id="connectionBanner"></div>
+    <div class="status" id="status">Loading…</div>
+
+    <!-- Opponent info + clock -->
+    <div class="clocks-outer">
+      <div class="side-banner" id="opponentBanner">Opponent</div>
+      <div class="clock" id="opponentClock">
+        <span class="clock-label">--</span>
+        <span class="clock-time">--:--</span>
+      </div>
+    </div>
+
+    <div class="captured-row theirs" id="capturedByMe" title="Enemy pieces you've captured (count only, not identities)"><span class="label">You took</span></div>
+    <div class="board" id="board"></div>
+    <div class="captured-row mine" id="capturedByThem" title="Your pieces the opponent captured"><span class="label">Lost</span></div>
+
+    <!-- Your info + clock -->
+    <div class="clocks-outer">
+      <div class="side-banner" id="selfBanner">You</div>
+      <div class="clock" id="selfClock">
+        <span class="clock-label">--</span>
+        <span class="clock-time">--:--</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="sidebar">
+    <div class="panel">
+      <h3 id="pawnTriesHeader">Pawn Tries</h3>
+      <div class="pawn-tries none" id="pawnTries">&mdash;</div>
+    </div>
+    <div class="panel">
+      <h3>Referee Log</h3>
+      <div class="log" id="log"></div>
+      <div class="move-input" id="moveInputRow">
+        <input type="text" id="moveInput" placeholder="e.g. e2-e4, Nf3, O-O" autocomplete="off" />
+        <button id="submitMove">Submit</button>
+      </div>
+    </div>
+    <div class="panel rules">
+      <h3>How Blitzkrieg Works</h3>
+      <div>
+        You see only <b>your own pieces</b>. On each turn the referee tells you how many
+        <b>pawn tries</b> (legal pawn captures) you have. Attempting a pawn try is optional,
+        but capped at <b>3 attempts</b> per turn; after that, any other move is fine.
+        Captures are announced by square: <b>&ldquo;Pawn captured&rdquo;</b> (specific) or
+        <b>&ldquo;Piece captured&rdquo;</b> (identity hidden).
+        Illegal moves return <b>&ldquo;No&rdquo;</b>. Checks are announced by direction:
+        <b>knight</b>, <b>horizontal</b>, <b>vertical</b>, or <b>diagonal</b>.
+      </div>
+    </div>
+    <div class="panel rules history">
+      <h3>History &amp; Acknowledgments</h3>
+      <div>
+        <figure class="knight-figure">
+          <img src="knight.jpg" alt="Two mounted knights jousting before a castle, painting by Ray Newbill" />
+          <figcaption>Painting &copy; <b>Ray Newbill</b> &mdash; from the original Kriegspiel game.</figcaption>
+        </figure>
+
+        <p><b>Kriegspiel</b> (German for <i>war game</i>) is a blind chess variant
+        invented by <b>Michael Henry Temple</b> in London in 1899. Two players sit at
+        separate boards; a referee sees both and adjudicates, announcing only what
+        each side is entitled to know &mdash; captures by square, checks by direction,
+        and pawn tries. It became a staple of university chess and math clubs through
+        the twentieth century for the way it turns chess into a game of deduction
+        under uncertainty.</p>
+
+        <p>This version is built in tribute to <b>Leston Newbill</b>, who wrote one of
+        the first electronic implementations of Kriegspiel at the <b>University of
+        Arizona</b> in the early 1980s &mdash; long before the web, when a program
+        that could arbitrate a blind chess game between two players on a shared system
+        was a small marvel. Generations of students played it. Leston still maintains
+        an online incarnation (without a computer opponent) at
+        <a href="http://sencounter.net/Docs/SE_Introduction.html"
+           target="_blank" rel="noopener">sencounter.net</a>.</p>
+
+        <p class="dedication">For Leston &mdash; thank you for the game.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="promoModal">
+  <div class="modal">
+    <h2>Promote pawn to:</h2>
+    <div class="piece-choice" id="promoChoices"></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="gameOverModal">
+  <div class="modal">
+    <h2 id="gameOverTitle">Game Over</h2>
+    <p id="gameOverText"></p>
+    <button class="primary" onclick="document.getElementById('gameOverModal').classList.remove('show')">Close</button>
+  </div>
+</div>
+
+<script src="engine.js"></script>
+<script>
+'use strict';
+
+// ====================================================================
+// ENGINE IMPORTS (shared browser/server module).
+// ====================================================================
+const ENG = window.BlitzkriegEngine;
+const {
+  FILES, GLYPHS, MAX_PAWN_ATTEMPTS,
+  emptyBoard, initialPosition, cloneBoard, colorOf, kindOf, onBoard, sqName, sqParse,
+  legalMoves, inCheck, findKing,
+  Referee, PlayerView, AIPlayer
+} = ENG;
+
+// Minimum time (ms) between the AI starting to think and the move being announced.
+const AI_MIN_THINK_MS = 2000;
+
+// ====================================================================
+// SOUND — simple Web Audio tones (no external files).
+// ====================================================================
+let _audioCtx = null;
+function audioCtx() {
+  if (!_audioCtx) {
+    try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) { _audioCtx = null; }
+  }
+  if (_audioCtx && _audioCtx.state === 'suspended') _audioCtx.resume();
+  return _audioCtx;
+}
+function soundEnabled() {
+  const el = document.getElementById('soundToggle');
+  return el ? el.checked : true;
+}
+function playTone(kind) {
+  if (!soundEnabled()) return;
+  const ctx = audioCtx();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+  const config = {
+    move:    { freqs: [520, 320],         type: 'triangle', dur: 0.14, gain: 0.08 },
+    capture: { freqs: [700, 220, 110],    type: 'square',   dur: 0.22, gain: 0.10 },
+    check:   { freqs: [880, 1100, 880],   type: 'sawtooth', dur: 0.32, gain: 0.08 },
+    illegal: { freqs: [180, 140],         type: 'square',   dur: 0.16, gain: 0.07 },
+    end:     { freqs: [523, 659, 784, 1046], type: 'triangle', dur: 0.55, gain: 0.08 }
+  }[kind] || { freqs: [440], type: 'sine', dur: 0.1, gain: 0.05 };
+
+  const gain = ctx.createGain();
+  gain.connect(ctx.destination);
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(config.gain, now + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + config.dur);
+
+  const stepTime = config.dur / config.freqs.length;
+  config.freqs.forEach((f, i) => {
+    const osc = ctx.createOscillator();
+    osc.type = config.type;
+    osc.frequency.setValueAtTime(f, now + i * stepTime);
+    osc.connect(gain);
+    osc.start(now + i * stepTime);
+    osc.stop(now + (i + 1) * stepTime + 0.01);
+  });
+}
+
+// ====================================================================
+// GLOBAL MODE + STATE
+// Modes: 'lobby' | 'ai' | 'online-player' | 'online-spectator'
+// ====================================================================
+let mode = 'lobby';
+
+// AI-mode state
+let referee = null;
+let ai = null;
+
+// Player-side state (also used for online-player mode)
+let humanColor = 'w';
+let aiColor = 'b';
+let boardOrientation = 'w'; // who's at the bottom
+let human = null;           // PlayerView (or spectator surrogate)
+let selectedSq = null;
+let gameActive = false;
+let pendingPromo = null;
+
+// Online-player state
+let ws = null;
+let myCode = null;
+let myToken = null;
+let myColor = null;    // 'w' or 'b' if playing online
+let online = {
+  connected: false,
+  opponentPresent: true,
+  tc: null,                  // {baseMs, incMs}
+  whiteMs: 0, blackMs: 0,
+  clockTurn: 'w',
+  clockRunning: false,
+  clockSyncAt: 0,
+  pawnTries: 0,
+  pawnAttemptsThisTurn: 0,
+  awaitingMoveAck: false,
+  lastPendingMove: null,
+  gameOver: false,
+  result: null,
+  finalBoard: null,
+  inCheckDirections: null
+};
+
+// Spectator-mode state (full board from server)
+let spectator = {
+  board: null,
+  turn: 'w',
+  gameOver: false,
+  result: null,
+  lastMoveByWhite: null,
+  lastMoveByBlack: null,
+  capturedByWhite: [],
+  capturedByBlack: [],
+  whiteMs: 0, blackMs: 0,
+  clockTurn: 'w',
+  clockRunning: false,
+  clockSyncAt: 0,
+  tc: null
+};
+
+let clockTickTimer = null;
+
+// ====================================================================
+// DOM REFS
+// ====================================================================
+const lobbyEl = document.getElementById('lobby');
+const lobbyModesEl = document.getElementById('lobbyModes');
+const aiPanel = document.getElementById('aiPanel');
+const createPanel = document.getElementById('createPanel');
+const joinPanel = document.getElementById('joinPanel');
+const spectatePanel = document.getElementById('spectatePanel');
+const waitingPanel = document.getElementById('waitingPanel');
+
+const gameRoot = document.getElementById('gameRoot');
+const boardEl = document.getElementById('board');
+const logEl = document.getElementById('log');
+const statusEl = document.getElementById('status');
+const pawnTriesEl = document.getElementById('pawnTries');
+const pawnTriesHeader = document.getElementById('pawnTriesHeader');
+const capturedByMeEl = document.getElementById('capturedByMe');
+const capturedByThemEl = document.getElementById('capturedByThem');
+const moveInputEl = document.getElementById('moveInput');
+const moveInputRow = document.getElementById('moveInputRow');
+const submitMoveBtn = document.getElementById('submitMove');
+const newGameBtn = document.getElementById('newGameBtn');
+const resignBtn = document.getElementById('resignBtn');
+const shareGameBtn = document.getElementById('shareGameBtn');
+const modeLabel = document.getElementById('modeLabel');
+const promoModal = document.getElementById('promoModal');
+const promoChoices = document.getElementById('promoChoices');
+const gameOverModal = document.getElementById('gameOverModal');
+const gameOverTitle = document.getElementById('gameOverTitle');
+const gameOverText = document.getElementById('gameOverText');
+const opponentClockEl = document.getElementById('opponentClock');
+const selfClockEl = document.getElementById('selfClock');
+const opponentBanner = document.getElementById('opponentBanner');
+const selfBanner = document.getElementById('selfBanner');
+const connectionBanner = document.getElementById('connectionBanner');
+
+// ====================================================================
+// LOBBY UI
+// ====================================================================
+function hideAllLobbyPanels() {
+  for (const p of [aiPanel, createPanel, joinPanel, spectatePanel, waitingPanel]) {
+    p.classList.remove('show');
+  }
+  for (const b of lobbyModesEl.querySelectorAll('.mode-btn')) b.classList.remove('active');
+}
+function showLobby() {
+  mode = 'lobby';
+  stopClockTicker();
+  gameRoot.style.display = 'none';
+  lobbyEl.style.display = 'flex';
+  hideAllLobbyPanels();
+  clearUrlHash();
+}
+function showModePanel(panelMode) {
+  hideAllLobbyPanels();
+  for (const b of lobbyModesEl.querySelectorAll('.mode-btn')) {
+    if (b.dataset.mode === panelMode) b.classList.add('active');
+  }
+  if (panelMode === 'ai') aiPanel.classList.add('show');
+  else if (panelMode === 'create-online') createPanel.classList.add('show');
+  else if (panelMode === 'join-online') joinPanel.classList.add('show');
+  else if (panelMode === 'spectate') spectatePanel.classList.add('show');
+}
+function showWaitingRoom(code) {
+  hideAllLobbyPanels();
+  waitingPanel.classList.add('show');
+  document.getElementById('waitingCode').textContent = code;
+  const link = location.origin + location.pathname + '#' + code;
+  document.getElementById('shareLink').value = link;
+}
+function showGameUi() {
+  lobbyEl.style.display = 'none';
+  gameRoot.style.display = '';
+}
+
+for (const btn of lobbyModesEl.querySelectorAll('.mode-btn')) {
+  btn.addEventListener('click', () => showModePanel(btn.dataset.mode));
+}
+document.getElementById('aiCancelBtn').addEventListener('click', showLobby);
+document.getElementById('createCancelBtn').addEventListener('click', showLobby);
+document.getElementById('joinCancelBtn').addEventListener('click', showLobby);
+document.getElementById('spectateCancelBtn').addEventListener('click', showLobby);
+document.getElementById('cancelWaitingBtn').addEventListener('click', () => {
+  if (ws) { try { ws.close(); } catch(e) {} ws = null; }
+  clearSavedToken(myCode);
+  myCode = null; myToken = null; myColor = null;
+  showLobby();
+});
+document.getElementById('copyLinkBtn').addEventListener('click', () => {
+  const el = document.getElementById('shareLink');
+  el.select();
+  try { navigator.clipboard.writeText(el.value); } catch(e) {
+    document.execCommand && document.execCommand('copy');
+  }
+});
+
+// ====================================================================
+// URL HASH (for shareable / resume links)
+// ====================================================================
+function readUrlCode() {
+  const h = location.hash.replace(/^#/, '').toUpperCase();
+  const m = h.match(/^[A-Z2-9]{5}$/);
+  return m ? m[0] : null;
+}
+function setUrlHash(code) { history.replaceState(null, '', '#' + code); }
+function clearUrlHash() { history.replaceState(null, '', location.pathname); }
+
+// ====================================================================
+// PERSIST TOKEN for resume-by-URL
+// ====================================================================
+function tokenKey(code) { return 'blitzkrieg_token_' + code; }
+function saveToken(code, token, color) {
+  try { localStorage.setItem(tokenKey(code), JSON.stringify({ token, color, ts: Date.now() })); } catch(e) {}
+}
+function loadToken(code) {
+  try {
+    const raw = localStorage.getItem(tokenKey(code));
+    if (!raw) return null;
+    const j = JSON.parse(raw);
+    if (!j || !j.token) return null;
+    // Discard tokens older than 48h
+    if (j.ts && Date.now() - j.ts > 48 * 3600 * 1000) return null;
+    return j;
+  } catch(e) { return null; }
+}
+function clearSavedToken(code) {
+  if (!code) return;
+  try { localStorage.removeItem(tokenKey(code)); } catch(e) {}
+}
+
+// ====================================================================
+// BOARD BUILD + RENDER (works for AI, online-player, spectator)
+// ====================================================================
+function buildBoard() {
+  boardEl.innerHTML = '';
+  const whiteBottom = boardOrientation === 'w';
+  for (let dispR = 0; dispR < 8; dispR++) {
+    const rankLabel = document.createElement('div');
+    rankLabel.className = 'coord';
+    rankLabel.textContent = whiteBottom ? (8 - dispR) : (dispR + 1);
+    boardEl.appendChild(rankLabel);
+    for (let dispC = 0; dispC < 8; dispC++) {
+      const r = whiteBottom ? dispR : 7 - dispR;
+      const c = whiteBottom ? dispC : 7 - dispC;
+      const sq = document.createElement('div');
+      sq.className = 'sq ' + ((r+c) % 2 === 0 ? 'light' : 'dark');
+      sq.dataset.r = r;
+      sq.dataset.c = c;
+      sq.addEventListener('click', onSquareClick);
+      boardEl.appendChild(sq);
+    }
+  }
+  const corner = document.createElement('div');
+  corner.className = 'coord';
+  boardEl.appendChild(corner);
+  for (let dispC = 0; dispC < 8; dispC++) {
+    const c = whiteBottom ? dispC : 7 - dispC;
+    const fileLabel = document.createElement('div');
+    fileLabel.className = 'coord';
+    fileLabel.textContent = FILES[c];
+    boardEl.appendChild(fileLabel);
+  }
+}
+
+function boardToRender() {
+  // Decide which board to paint, and whether to reveal the opponent's pieces.
+  if (mode === 'online-spectator') {
+    return { board: spectator.board || emptyBoard(), reveal: true };
+  }
+  if (mode === 'ai') {
+    const revealed = !!(referee && referee.gameOver);
+    if (revealed) return { board: referee.state.board, reveal: true };
+    return { board: human ? human.ownBoard : emptyBoard(), reveal: false };
+  }
+  if (mode === 'online-player') {
+    if (online.gameOver && online.finalBoard) {
+      return { board: online.finalBoard, reveal: true };
+    }
+    return { board: human ? human.ownBoard : emptyBoard(), reveal: false };
+  }
+  return { board: emptyBoard(), reveal: false };
+}
+
+function renderBoard() {
+  const { board, reveal } = boardToRender();
+  const squares = boardEl.querySelectorAll('.sq');
+  squares.forEach(sq => {
+    const r = parseInt(sq.dataset.r, 10);
+    const c = parseInt(sq.dataset.c, 10);
+    sq.innerHTML = '';
+    sq.classList.remove('selected','target','lastmove','check','capturereveal','revealed');
+    const piece = board[r][c];
+    if (piece) {
+      const span = document.createElement('span');
+      const ownSide = mode === 'online-spectator' ? null : (myColorOfRenderer() || humanColor);
+      span.className = 'piece ' + (colorOf(piece) === 'w' ? 'white' : 'black');
+      if (reveal && ownSide && colorOf(piece) !== ownSide) span.classList.add('revealed');
+      span.textContent = GLYPHS[piece];
+      sq.appendChild(span);
+    }
+  });
+
+  // Last-move highlights
+  if (mode === 'online-spectator') {
+    for (const lm of [spectator.lastMoveByWhite, spectator.lastMoveByBlack]) {
+      if (lm) { highlightSq(lm.from.r, lm.from.c, 'lastmove'); highlightSq(lm.to.r, lm.to.c, 'lastmove'); }
+    }
+  } else if (human && human.lastOwnMove) {
+    highlightSq(human.lastOwnMove.from.r, human.lastOwnMove.from.c, 'lastmove');
+    highlightSq(human.lastOwnMove.to.r, human.lastOwnMove.to.c, 'lastmove');
+  }
+  if (human && human.lastEnemyCaptureSquare) {
+    const {r,c} = human.lastEnemyCaptureSquare;
+    highlightSq(r, c, 'capturereveal');
+  }
+
+  // Selection + candidate targets (input modes only)
+  if (selectedSq && (mode === 'ai' || mode === 'online-player')) {
+    highlightSq(selectedSq.r, selectedSq.c, 'selected');
+    const candidates = candidateTargets(selectedSq.r, selectedSq.c);
+    for (const t of candidates) highlightSq(t.r, t.c, 'target');
+  }
+
+  // In-check highlight: if this side is currently in check, flash their king.
+  const myC = mode === 'ai' ? humanColor : (mode === 'online-player' ? myColor : null);
+  if (myC && !reveal) {
+    let checkDirs = null;
+    if (mode === 'online-player') checkDirs = online.inCheckDirections;
+    if (checkDirs && checkDirs.length) {
+      const k = findKing(human.ownBoard, myC);
+      if (k) setTimeout(() => highlightSq(k.r, k.c, 'check'), 10);
+    }
+  }
+}
+function highlightSq(r, c, cls) {
+  const sq = boardEl.querySelector(`.sq[data-r="${r}"][data-c="${c}"]`);
+  if (sq) sq.classList.add(cls);
+}
+function myColorOfRenderer() {
+  if (mode === 'ai') return humanColor;
+  if (mode === 'online-player') return myColor;
+  return null;
+}
+
+// Candidate target squares — uses player's known-board.
+function candidateTargets(r, c) {
+  const targets = [];
+  const b = human.ownBoard;
+  const piece = b[r][c];
+  const me = myColorOfRenderer();
+  if (!piece || colorOf(piece) !== me) return targets;
+  const kind = kindOf(piece);
+  function add(nr, nc) {
+    if (!onBoard(nr, nc)) return;
+    if (b[nr][nc] && colorOf(b[nr][nc]) === me) return;
+    targets.push({ r: nr, c: nc });
+  }
+  function ray(dr, dc) {
+    let nr = r + dr, nc = c + dc;
+    while (onBoard(nr, nc)) {
+      if (b[nr][nc] && colorOf(b[nr][nc]) === me) break;
+      targets.push({ r: nr, c: nc });
+      if (b[nr][nc]) break;
+      nr += dr; nc += dc;
+    }
+  }
+  if (kind === 'N') {
+    for (const [dr,dc] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]) add(r+dr, c+dc);
+  } else if (kind === 'K') {
+    for (const [dr,dc] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]) add(r+dr, c+dc);
+    const back = me === 'w' ? 7 : 0;
+    if (r === back && c === 4) {
+      if (!b[back][5] && !b[back][6]) add(back, 6);
+      if (!b[back][1] && !b[back][2] && !b[back][3]) add(back, 2);
+    }
+  } else if (kind === 'R') {
+    for (const [dr,dc] of [[-1,0],[1,0],[0,-1],[0,1]]) ray(dr, dc);
+  } else if (kind === 'B') {
+    for (const [dr,dc] of [[-1,-1],[-1,1],[1,-1],[1,1]]) ray(dr, dc);
+  } else if (kind === 'Q') {
+    for (const [dr,dc] of [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]]) ray(dr, dc);
+  } else if (kind === 'P') {
+    const dir = me === 'w' ? -1 : 1;
+    const startR = me === 'w' ? 6 : 1;
+    if (onBoard(r+dir, c) && !b[r+dir][c]) {
+      targets.push({r:r+dir, c});
+      if (r === startR && !b[r+2*dir][c]) targets.push({r:r+2*dir, c});
+    }
+    for (const dc of [-1, 1]) {
+      const nr = r + dir, nc = c + dc;
+      if (onBoard(nr, nc) && (!b[nr][nc] || colorOf(b[nr][nc]) !== me)) {
+        targets.push({r:nr, c:nc});
+      }
+    }
+  }
+  return targets;
+}
+
+// Captured-pieces rendering (shared).
+function renderCapturedRows() {
+  if (mode === 'online-spectator') {
+    // Show both sides — top row: white's captures; bottom: black's captures.
+    renderTokens(capturedByMeEl,   'White took', spectator.capturedByWhite, 'b');
+    renderTokens(capturedByThemEl, 'Black took', spectator.capturedByBlack, 'w');
+    return;
+  }
+  if (!human) return;
+  const me = myColorOfRenderer();
+  const opp = me === 'w' ? 'b' : 'w';
+  renderTokens(capturedByMeEl,  'You took', human.capturedByMe,  opp);
+  renderTokens(capturedByThemEl,'Lost',     human.capturedByThem, me);
+}
+function renderTokens(el, labelText, pieces, pawnColor) {
+  el.innerHTML = '';
+  const label = document.createElement('span');
+  label.className = 'label';
+  label.textContent = labelText;
+  el.appendChild(label);
+  if (!pieces || pieces.length === 0) {
+    const none = document.createElement('span');
+    none.style.color = '#666';
+    none.style.fontSize = '12px';
+    none.textContent = '\u2014';
+    el.appendChild(none);
+    return;
+  }
+  for (const p of pieces) {
+    if (kindOf(p) === 'P') {
+      const span = document.createElement('span');
+      span.className = 'piece ' + (pawnColor === 'w' ? 'white' : 'black');
+      span.style.fontSize = '28px';
+      span.style.lineHeight = '1';
+      span.textContent = pawnColor === 'w' ? GLYPHS.P : GLYPHS.p;
+      el.appendChild(span);
+    } else {
+      const tok = document.createElement('span');
+      tok.className = 'token';
+      el.appendChild(tok);
+    }
+  }
+}
+
+// ====================================================================
+// LOG + STATUS
+// ====================================================================
+function logLine(text, cls) {
+  const d = document.createElement('div');
+  d.className = 'entry ' + (cls || '');
+  d.innerHTML = text;
+  logEl.appendChild(d);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function logTurnHeader(who) { logLine(who, 'turn-header'); }
+function clearLog() { logEl.innerHTML = ''; }
+function setStatus(text, type) {
+  statusEl.className = 'status ' + (type || '');
+  statusEl.innerHTML = text;
+}
+
+// ====================================================================
+// CLOCK UI + TICKER
+// Server sends an authoritative snapshot; we tick locally and resync on each update.
+// ====================================================================
+function formatClock(ms) {
+  ms = Math.max(0, ms);
+  if (ms >= 60000) {
+    const mins = Math.floor(ms / 60000);
+    const secs = Math.floor((ms % 60000) / 1000).toString().padStart(2,'0');
+    return `${mins}:${secs}`;
+  }
+  const secs = (ms / 1000).toFixed(1);
+  return `${secs}s`;
+}
+function setClockEl(el, ms, { label, active, paused, flagged }) {
+  const lbl = el.querySelector('.clock-label');
+  const tim = el.querySelector('.clock-time');
+  lbl.textContent = label || '';
+  tim.textContent = formatClock(ms);
+  el.classList.toggle('active', !!active);
+  el.classList.toggle('paused', !!paused);
+  el.classList.toggle('flagged', !!flagged);
+  el.classList.toggle('low', ms < 30000 && ms > 0 && !flagged);
+}
+function startClockTicker() {
+  if (clockTickTimer) return;
+  clockTickTimer = setInterval(renderClocks, 250);
+}
+function stopClockTicker() {
+  if (clockTickTimer) { clearInterval(clockTickTimer); clockTickTimer = null; }
+}
+function renderClocks() {
+  if (mode === 'ai') {
+    // No clocks in AI mode — hide both.
+    setClockEl(opponentClockEl, 0, { label: '', paused: true });
+    setClockEl(selfClockEl, 0, { label: '', paused: true });
+    opponentClockEl.style.display = 'none';
+    selfClockEl.style.display = 'none';
+    return;
+  }
+  opponentClockEl.style.display = '';
+  selfClockEl.style.display = '';
+  let whiteMs, blackMs, clockTurn, clockRunning, myC;
+  if (mode === 'online-player') {
+    ({ whiteMs, blackMs, clockTurn, clockRunning } = online);
+    myC = myColor;
+  } else { // spectator
+    ({ whiteMs, blackMs, clockTurn, clockRunning } = spectator);
+    myC = 'w'; // orientation: white-bottom; "self" slot shows white.
+  }
+  const syncAt = mode === 'online-player' ? online.clockSyncAt : spectator.clockSyncAt;
+  const tc = mode === 'online-player' ? online.tc : spectator.tc;
+  // Local tick: subtract time since last sync from the running side.
+  let lw = whiteMs, lb = blackMs;
+  if (clockRunning && syncAt) {
+    const delta = Date.now() - syncAt;
+    if (clockTurn === 'w') lw = Math.max(0, whiteMs - delta);
+    else lb = Math.max(0, blackMs - delta);
+  }
+  // Decide which clock renders at "top" (opponent) vs "bottom" (self).
+  let topColor, topMs, bottomColor, bottomMs;
+  if (mode === 'online-player') {
+    topColor = myC === 'w' ? 'b' : 'w';
+    bottomColor = myC;
+  } else {
+    topColor = 'b'; bottomColor = 'w';
+  }
+  topMs = topColor === 'w' ? lw : lb;
+  bottomMs = bottomColor === 'w' ? lw : lb;
+  const topLabel = topColor === 'w' ? 'White' : 'Black';
+  const bottomLabel = bottomColor === 'w' ? 'White' : 'Black';
+  setClockEl(opponentClockEl, topMs, {
+    label: topLabel,
+    active: clockRunning && clockTurn === topColor,
+    paused: !clockRunning,
+    flagged: topMs <= 0
+  });
+  setClockEl(selfClockEl, bottomMs, {
+    label: bottomLabel,
+    active: clockRunning && clockTurn === bottomColor,
+    paused: !clockRunning,
+    flagged: bottomMs <= 0
+  });
+}
+
+// ====================================================================
+// MOVE NOTATION — shared parsing/formatting
+// ====================================================================
+function parseMoveInput(text, me) {
+  text = text.trim().replace(/\s+/g, '');
+  if (!text) return null;
+  if (text === 'O-O' || text === '0-0' || text.toLowerCase() === 'o-o') {
+    const back = me === 'w' ? 7 : 0;
+    return { from: {r: back, c: 4}, to: {r: back, c: 6}, piece: 'K', castle: 'K' };
+  }
+  if (text === 'O-O-O' || text === '0-0-0' || text.toLowerCase() === 'o-o-o') {
+    const back = me === 'w' ? 7 : 0;
+    return { from: {r: back, c: 4}, to: {r: back, c: 2}, piece: 'K', castle: 'Q' };
+  }
+  text = text.replace(/[+#]$/, '');
+  let m = text.match(/^([a-h][1-8])[-x]?([a-h][1-8])([QRBNqrbn])?$/);
+  if (m) {
+    const from = sqParse(m[1]);
+    const to = sqParse(m[2]);
+    if (!from || !to) return null;
+    const piece = human.ownBoard[from.r][from.c];
+    if (!piece) return null;
+    const desired = { from, to, piece: kindOf(piece) };
+    if (m[3]) desired.promo = me === 'w' ? m[3].toUpperCase() : m[3].toLowerCase();
+    if (kindOf(piece) === 'K' && Math.abs(to.c - from.c) === 2) {
+      desired.castle = to.c > from.c ? 'K' : 'Q';
+    }
+    return desired;
+  }
+  m = text.match(/^([KQRBN])?([a-h])?([1-8])?x?([a-h][1-8])(=?([QRBN]))?$/);
+  if (m) {
+    const pieceChar = m[1] || 'P';
+    const disambFile = m[2];
+    const disambRank = m[3];
+    const toSq = sqParse(m[4]);
+    const promo = m[6];
+    if (!toSq) return null;
+    const candidates = [];
+    for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+      const p = human.ownBoard[r][c];
+      if (!p || colorOf(p) !== me) continue;
+      if (kindOf(p) !== pieceChar) continue;
+      if (disambFile && FILES[c] !== disambFile) continue;
+      if (disambRank && (8 - r).toString() !== disambRank) continue;
+      const targets = candidateTargets(r, c);
+      if (targets.some(t => t.r === toSq.r && t.c === toSq.c)) candidates.push({ r, c });
+    }
+    if (candidates.length === 0) return null;
+    const from = candidates[0];
+    const desired = { from, to: toSq, piece: pieceChar };
+    if (promo) desired.promo = me === 'w' ? promo.toUpperCase() : promo.toLowerCase();
+    return desired;
+  }
+  return null;
+}
+function moveDesc(m) {
+  if (!m) return '?';
+  if (m.castle === 'K') return 'O-O';
+  if (m.castle === 'Q') return 'O-O-O';
+  let s = sqName(m.from.r, m.from.c) + '-' + sqName(m.to.r, m.to.c);
+  if (m.promo) s += '=' + m.promo.toUpperCase();
+  return s;
+}
+
+// ====================================================================
+// ANNOUNCEMENT HANDLING
+// These apply to our player view (AI mode or online-player mode).
+// ====================================================================
+function applyAnnouncementsToView(announcements, isMine) {
+  for (const a of announcements) {
+    if (a.kind === 'capture') {
+      const {r, c} = sqParse(a.square);
+      const isPawn = kindOf(a.piece) === 'P';
+      const label = isPawn ? 'Pawn' : 'Piece';
+      if (a.captorColor === myColorOfRenderer()) {
+        // We captured something. In AI / online-player mode we add it to the list here
+        // if the mover (us) triggered the announcement. Server already tracks this in online
+        // but the view's capturedByMe is our own in-memory mirror.
+        if (isMine) human.capturedByMe.push(a.piece);
+        logLine(`<span class="capture">Referee: ${label.toLowerCase()} captured on <b>${a.square}</b>.</span>`, 'capture');
+      } else {
+        // Opponent captured our piece.
+        human.opponentCapturedAt(r, c);
+        const yours = isPawn ? 'your pawn' : 'your piece';
+        logLine(`<span class="capture">Referee: ${yours} captured on <b>${a.square}</b>.</span>`, 'capture');
+      }
+    } else if (a.kind === 'check') {
+      const dirTxt = (a.directions && a.directions.length) ? a.directions.join(' and ') : 'unknown';
+      const checkedWho = a.checkedColor === 'w' ? 'White' : 'Black';
+      logLine(`<span class="check">Referee: ${checkedWho} is in check by ${dirTxt}.</span>`, 'check');
+      if (a.checkedColor === myColorOfRenderer()) {
+        if (mode === 'online-player') online.inCheckDirections = a.directions || [];
+        const k = findKing(human.ownBoard, myColorOfRenderer());
+        if (k) setTimeout(() => highlightSq(k.r, k.c, 'check'), 10);
+        setStatus(`You are in check by <b>${dirTxt}</b>!`, 'check');
+      }
+    }
+  }
+}
+function applyAnnouncementsSpectator(announcements, moverColor) {
+  for (const a of announcements) {
+    if (a.kind === 'capture') {
+      const isPawn = kindOf(a.piece) === 'P';
+      const label = isPawn ? 'Pawn' : 'Piece';
+      const who = a.captorColor === 'w' ? 'White' : 'Black';
+      logLine(`<span class="capture">Referee: ${label.toLowerCase()} captured on <b>${a.square}</b> by ${who}.</span>`, 'capture');
+    } else if (a.kind === 'check') {
+      const dirTxt = (a.directions && a.directions.length) ? a.directions.join(' and ') : 'unknown';
+      const checkedWho = a.checkedColor === 'w' ? 'White' : 'Black';
+      logLine(`<span class="check">Referee: ${checkedWho} is in check by ${dirTxt}.</span>`, 'check');
+    }
+  }
+}
+
+// ====================================================================
+// PAWN TRIES UI
+// ====================================================================
+function updatePawnTriesUi() {
+  if (mode === 'ai') {
+    if (!referee || referee.state.turn !== humanColor) {
+      pawnTriesEl.textContent = 'opponent\u2019s turn';
+      pawnTriesEl.className = 'pawn-tries none';
+      return;
+    }
+    const tries = referee.pawnTries(humanColor);
+    const used = referee.pawnAttemptsThisTurn;
+    setPawnTriesDisplay(tries, used);
+  } else if (mode === 'online-player') {
+    if (online.gameOver) {
+      pawnTriesEl.textContent = 'game over';
+      pawnTriesEl.className = 'pawn-tries none';
+      return;
+    }
+    if (online.clockTurn !== myColor) {
+      pawnTriesEl.textContent = 'opponent\u2019s turn';
+      pawnTriesEl.className = 'pawn-tries none';
+      return;
+    }
+    setPawnTriesDisplay(online.pawnTries, online.pawnAttemptsThisTurn);
+  } else if (mode === 'online-spectator') {
+    pawnTriesEl.textContent = '\u2014';
+    pawnTriesEl.className = 'pawn-tries none';
+  }
+}
+function setPawnTriesDisplay(tries, used) {
+  if (tries === 0) {
+    pawnTriesEl.textContent = 'no pawn tries';
+    pawnTriesEl.className = 'pawn-tries none';
+    return;
+  }
+  const remaining = Math.max(0, MAX_PAWN_ATTEMPTS - used);
+  const label = `${tries} pawn ${tries===1?'try':'tries'}`;
+  if (used === 0) {
+    pawnTriesEl.textContent = label;
+    pawnTriesEl.className = 'pawn-tries';
+  } else if (remaining === 0) {
+    pawnTriesEl.textContent = `${label} \u2014 attempts exhausted`;
+    pawnTriesEl.className = 'pawn-tries none';
+  } else {
+    pawnTriesEl.textContent = `${label} \u2014 ${remaining} attempt${remaining===1?'':'s'} left`;
+    pawnTriesEl.className = 'pawn-tries';
+  }
+}
+
+// ====================================================================
+// CLICK / SELECT HANDLING (shared for AI & online-player)
+// ====================================================================
+function onSquareClick(e) {
+  if (mode === 'online-spectator') return;
+  if (!gameActive) return;
+  const me = myColorOfRenderer();
+  if (mode === 'ai' && referee.state.turn !== me) return;
+  if (mode === 'online-player' && online.clockTurn !== me) return;
+
+  const r = parseInt(e.currentTarget.dataset.r, 10);
+  const c = parseInt(e.currentTarget.dataset.c, 10);
+  if (selectedSq) {
+    if (selectedSq.r === r && selectedSq.c === c) {
+      selectedSq = null; renderBoard(); return;
+    }
+    const piece = human.ownBoard[selectedSq.r][selectedSq.c];
+    if (!piece) { selectedSq = null; renderBoard(); return; }
+    const kind = kindOf(piece);
+    const promoRow = me === 'w' ? 0 : 7;
+    if (kind === 'P' && r === promoRow) {
+      pendingPromo = { from: {...selectedSq}, to: { r, c } };
+      showPromoModal();
+      return;
+    }
+    const desired = { from: { r: selectedSq.r, c: selectedSq.c }, to: { r, c }, piece: kind };
+    if (kind === 'K' && Math.abs(c - selectedSq.c) === 2) {
+      desired.castle = c > selectedSq.c ? 'K' : 'Q';
+    }
+    attemptPlayerMove(desired);
+    return;
+  }
+  const piece = human.ownBoard[r][c];
+  if (piece && colorOf(piece) === me) {
+    selectedSq = { r, c };
+    renderBoard();
+  }
+}
+
+function showPromoModal() {
+  const me = myColorOfRenderer();
+  promoChoices.innerHTML = '';
+  const pieces = me === 'w' ? ['Q','R','B','N'] : ['q','r','b','n'];
+  for (const pc of pieces) {
+    const btn = document.createElement('button');
+    btn.innerHTML = GLYPHS[pc];
+    btn.style.color = me === 'w' ? '#fff' : '#111';
+    btn.style.textShadow = me === 'w' ? '0 0 2px #000' : '0 0 2px #fff';
+    btn.addEventListener('click', () => {
+      promoModal.classList.remove('show');
+      const desired = {
+        from: {...pendingPromo.from},
+        to: {...pendingPromo.to},
+        piece: 'P',
+        promo: pc
+      };
+      pendingPromo = null;
+      attemptPlayerMove(desired);
+    });
+    promoChoices.appendChild(btn);
+  }
+  promoModal.classList.add('show');
+}
+
+// Dispatcher: route to local referee (AI mode) or server (online).
+function attemptPlayerMove(desired) {
+  const me = myColorOfRenderer();
+  // In Kriegspiel we permit "guessing" pawn captures — mark capture intent if pawn moves diagonal.
+  if (desired.piece === 'P' && desired.from.c !== desired.to.c && !human.ownBoard[desired.to.r][desired.to.c]) {
+    desired.capture = true;
+    desired.enPassant = true;
+  }
+  if (mode === 'ai') return attemptHumanMoveAi(desired, me);
+  if (mode === 'online-player') return attemptHumanMoveOnline(desired);
+}
+
+// ====================================================================
+// AI MODE
+// ====================================================================
+function startAiGame() {
+  mode = 'ai';
+  humanColor = document.getElementById('colorSelect').value;
+  aiColor = humanColor === 'w' ? 'b' : 'w';
+  boardOrientation = humanColor;
+  referee = new Referee();
+  human = new PlayerView(humanColor);
+  ai = new AIPlayer(aiColor, document.getElementById('aiSelect').value);
+  selectedSq = null;
+  gameActive = true;
+  // UI
+  showGameUi();
+  modeLabel.textContent = `vs Computer (${humanColor === 'w' ? 'White' : 'Black'})`;
+  resignBtn.style.display = '';
+  shareGameBtn.style.display = 'none';
+  newGameBtn.textContent = 'New Game';
+  moveInputRow.style.display = '';
+  selfBanner.textContent = 'You';
+  opponentBanner.textContent = 'Computer';
+  connectionBanner.classList.remove('show');
+  clearLog();
+  logLine('New game begun. You play <b>' + (humanColor === 'w' ? 'White' : 'Black') + '</b>.', 'system');
+  buildBoard();
+  renderBoard();
+  renderCapturedRows();
+  renderClocks(); // hides clocks in AI mode
+  beginAiTurn();
+}
+
+function beginAiTurn() {
+  if (!gameActive) return;
+  if (referee.state.turn === humanColor) {
+    const tries = referee.pawnTries(humanColor);
+    const who = humanColor === 'w' ? 'White' : 'Black';
+    logTurnHeader(`— ${who} to move —`);
+    logLine(`<span class="announce">Referee: ${who} to move. ${who} has ${tries} pawn ${tries===1?'try':'tries'}.</span>`, 'announce');
+    updatePawnTriesUi();
+    setStatus('Your move. Click a piece and a target, or type a move.', 'turn');
+  } else {
+    const tries = referee.pawnTries(aiColor);
+    const who = aiColor === 'w' ? 'White' : 'Black';
+    logTurnHeader(`— ${who} to move —`);
+    logLine(`<span class="announce">Referee: ${who} to move. ${who} has ${tries} pawn ${tries===1?'try':'tries'}.</span>`, 'announce');
+    pawnTriesEl.textContent = 'opponent\u2019s turn';
+    pawnTriesEl.className = 'pawn-tries none';
+    setStatus('Computer is thinking\u2026', '');
+    setTimeout(doAiTurn, 450);
+  }
+}
+
+function attemptHumanMoveAi(desired, me) {
+  const result = referee.attemptMove(me, desired);
+  if (!result.ok) {
+    const firstAnn = result.announcements[0] || {};
+    if (firstAnn.kind === 'pawn-attempts-exhausted') {
+      logLine(`<span class="illegal">You: ${moveDesc(desired)} \u2192 Referee: ${firstAnn.text}</span>`, 'illegal');
+      setStatus(firstAnn.text, 'turn');
+    } else {
+      logLine('<span class="illegal">You: ' + moveDesc(desired) + ' \u2192 Referee: No.</span>', 'illegal');
+      const used = referee.pawnAttemptsThisTurn;
+      const remaining = MAX_PAWN_ATTEMPTS - used;
+      if (used > 0 && remaining > 0) {
+        setStatus(`Referee says <b>No</b>. (${remaining} pawn-capture attempt${remaining===1?'':'s'} left.)`, 'turn');
+      } else if (used > 0 && remaining === 0) {
+        setStatus('Referee says <b>No</b>. Pawn-capture attempts exhausted \u2014 try something else.', 'turn');
+      } else {
+        setStatus('Referee says <b>No</b>. Try another move.', 'turn');
+      }
+    }
+    selectedSq = null;
+    renderBoard();
+    updatePawnTriesUi();
+    playTone('illegal');
+    return;
+  }
+  human.applyOwnMove(result.move);
+  selectedSq = null;
+  applyAnnouncementsToView(result.announcements, true);
+  if (!result.result) {
+    logLine(`<span class="ok">You: ${moveDesc(result.move)} \u2192 Referee: move made.</span>`, 'ok');
+  }
+  playTone(result.announcements.some(a => a.kind === 'capture') ? 'capture' : 'move');
+  if (result.announcements.some(a => a.kind === 'check')) setTimeout(() => playTone('check'), 180);
+  renderBoard();
+  renderCapturedRows();
+  moveInputEl.value = '';
+  if (result.result) { endAiGame(result.result); return; }
+  ai.processOpponentMove();
+  ai.newTurn();
+  beginAiTurn();
+}
+
+function doAiTurn() {
+  if (!gameActive) return;
+  const turnStart = performance.now();
+  const commitAndRender = (result, move) => {
+    finishAiTurn(turnStart, () => submitAiMoveResult(result, move));
+  };
+  let attempts = 0;
+  const tryOne = () => {
+    if (attempts++ > 150) {
+      const truly = legalMoves(referee.state, aiColor);
+      if (truly.length === 0) return;
+      const pick = truly[Math.floor(Math.random() * truly.length)];
+      const result = referee.attemptMove(aiColor, pick);
+      if (result.ok) commitAndRender(result, pick);
+      return;
+    }
+    const chosen = ai.pickMove() || (() => {
+      const truly = legalMoves(referee.state, aiColor);
+      return truly.length ? truly[Math.floor(Math.random() * truly.length)] : null;
+    })();
+    if (!chosen) return;
+    const result = referee.attemptMove(aiColor, chosen);
+    if (result.ok) { commitAndRender(result, chosen); return; }
+    ai.registerReject(chosen);
+    setTimeout(tryOne, 2);
+  };
+  tryOne();
+}
+function finishAiTurn(turnStart, fn) {
+  const elapsed = performance.now() - turnStart;
+  const wait = Math.max(0, AI_MIN_THINK_MS - elapsed);
+  setTimeout(fn, wait);
+}
+function submitAiMoveResult(result, chosen) {
+  const mv = result.move;
+  ai.view.applyOwnMove(mv);
+  for (const a of result.announcements) {
+    if (a.kind === 'capture') ai.processCaptureAnnouncement(a);
+  }
+  ai.guess[mv.from.r][mv.from.c] = null;
+  ai.guess[mv.to.r][mv.to.c] = ai.view.ownBoard[mv.to.r][mv.to.c];
+
+  const hadCapture = result.announcements.some(a => a.kind === 'capture');
+  const hadCheck = result.announcements.some(a => a.kind === 'check');
+  if (hadCapture) playTone('capture'); else playTone('move');
+  if (hadCheck) setTimeout(() => playTone('check'), 180);
+
+  human.opponentSilentMove();
+  logLine('<span class="announce">Referee: opponent has moved.</span>', 'announce');
+  applyAnnouncementsToView(result.announcements, false);
+  renderBoard();
+  renderCapturedRows();
+  if (result.result) { playTone('end'); endAiGame(result.result); return; }
+  beginAiTurn();
+}
+function endAiGame(r) {
+  gameActive = false;
+  selectedSq = null;
+  if (referee) referee.gameOver = true;
+  renderBoard();
+  logLine('<span class="announce">Final position revealed.</span>', 'announce');
+  showGameOverModal(r, humanColor, aiColor);
+}
+
+// ====================================================================
+// ONLINE MODE — WebSocket client
+// ====================================================================
+function wsUrl() {
+  const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${scheme}//${location.host}/ws`;
+}
+function ensureWs() {
+  if (ws && ws.readyState === WebSocket.OPEN) return Promise.resolve(ws);
+  return new Promise((resolve, reject) => {
+    try {
+      ws = new WebSocket(wsUrl());
+    } catch (e) { reject(e); return; }
+    ws.addEventListener('open', () => { online.connected = true; resolve(ws); });
+    ws.addEventListener('message', onWsMessage);
+    ws.addEventListener('close', onWsClose);
+    ws.addEventListener('error', () => {});
+  });
+}
+function sendWs(msg) {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+}
+
+function onWsMessage(ev) {
+  let msg;
+  try { msg = JSON.parse(ev.data); } catch(e) { return; }
+  switch (msg.type) {
+    case 'error':            return onServerError(msg);
+    case 'created':          return onCreated(msg);
+    case 'joined':           return onJoined(msg);
+    case 'spectating':       return onSpectating(msg);
+    case 'resumed':          return onResumed(msg);
+    case 'lobby':            return onLobby(msg);
+    case 'started':          return onStarted(msg);
+    case 'moveAccepted':     return onMoveAccepted(msg);
+    case 'moveRejected':     return onMoveRejected(msg);
+    case 'opponentMoved':    return onOpponentMoved(msg);
+    case 'spectatorUpdate':  return onSpectatorUpdate(msg);
+    case 'ended':            return onEnded(msg);
+    case 'clock':            return onClockUpdate(msg);
+    case 'opponentDisconnected': return onOpponentDisconnected(msg);
+    case 'opponentReconnected':  return onOpponentReconnected(msg);
+  }
+}
+function onWsClose() {
+  online.connected = false;
+  if (mode === 'online-player' || mode === 'online-spectator') {
+    connectionBanner.classList.add('show');
+    connectionBanner.textContent = 'Disconnected from server. Reconnecting…';
+    // Attempt reconnect after a short delay.
+    setTimeout(async () => {
+      try {
+        await ensureWs();
+        connectionBanner.textContent = 'Reconnecting…';
+        if (mode === 'online-player' && myCode && myToken) {
+          sendWs({ type: 'resume', code: myCode, token: myToken });
+        } else if (mode === 'online-spectator' && myCode) {
+          sendWs({ type: 'spectate', code: myCode });
+        }
+      } catch(e) {
+        connectionBanner.textContent = 'Could not reconnect. Please reload the page.';
+      }
+    }, 800);
+  }
+}
+function onServerError(msg) {
+  connectionBanner.classList.add('show');
+  connectionBanner.textContent = 'Server: ' + (msg.message || 'error');
+  setTimeout(() => connectionBanner.classList.remove('show'), 3500);
+  if (msg.reason === 'not-found' || msg.reason === 'bad-token') {
+    // Token invalid — wipe and send back to lobby.
+    clearSavedToken(myCode);
+    setTimeout(showLobby, 1200);
+  }
+}
+
+// ---- Online: CREATE ----
+async function createOnlineGame() {
+  const min = parseInt(document.getElementById('tcMin').value, 10) || 10;
+  const inc = parseInt(document.getElementById('tcInc').value, 10) || 5;
+  const prefColor = document.getElementById('createColor').value;
+  try { await ensureWs(); } catch(e) { alert('Cannot connect to server.'); return; }
+  sendWs({ type: 'create', timeControl: { min, inc }, prefColor });
+}
+function onCreated(msg) {
+  myCode = msg.code; myToken = msg.token; myColor = msg.color;
+  online.tc = msg.tc;
+  saveToken(myCode, myToken, myColor);
+  setUrlHash(myCode);
+  showWaitingRoom(myCode);
+}
+function onLobby(msg) {
+  if (mode === 'lobby') return; // ignore
+  // Just reflect presence in the waiting banner / connection banner.
+  if (waitingPanel.classList.contains('show')) {
+    // Still in waiting room — keep showing the code.
+  }
+}
+
+// ---- Online: JOIN ----
+async function joinOnlineGame(codeInput) {
+  const code = (codeInput || '').toUpperCase();
+  if (!/^[A-Z2-9]{5}$/.test(code)) { alert('Code must be 5 letters/digits.'); return; }
+  try { await ensureWs(); } catch(e) { alert('Cannot connect to server.'); return; }
+  sendWs({ type: 'join', code });
+}
+function onJoined(msg) {
+  myCode = msg.code; myToken = msg.token; myColor = msg.color;
+  online.tc = msg.tc;
+  saveToken(myCode, myToken, myColor);
+  setUrlHash(myCode);
+  // Wait for 'started' message — if we're the one that joined, server already sends it with snapshot.
+}
+
+// ---- Online: SPECTATE ----
+async function spectateOnlineGame(codeInput) {
+  const code = (codeInput || '').toUpperCase();
+  if (!/^[A-Z2-9]{5}$/.test(code)) { alert('Code must be 5 letters/digits.'); return; }
+  try { await ensureWs(); } catch(e) { alert('Cannot connect to server.'); return; }
+  sendWs({ type: 'spectate', code });
+}
+function onSpectating(msg) {
+  myCode = msg.code;
+  spectator.tc = msg.tc;
+  // Initialize spectator from snapshot
+  applySpectatorSnapshot(msg.snapshot);
+  mode = 'online-spectator';
+  boardOrientation = 'w';
+  setUrlHash(myCode);
+  showGameUi();
+  modeLabel.textContent = `Spectating ${myCode}`;
+  newGameBtn.textContent = 'Leave';
+  resignBtn.style.display = 'none';
+  shareGameBtn.style.display = '';
+  moveInputRow.style.display = 'none';
+  selfBanner.textContent = 'White';
+  opponentBanner.textContent = 'Black';
+  clearLog();
+  logLine(`Spectating game <b>${myCode}</b>. Both sides visible.`, 'system');
+  buildBoard();
+  renderBoard();
+  renderCapturedRows();
+  renderClocks();
+  startClockTicker();
+  updatePawnTriesUi();
+  if (spectator.gameOver) applyGameOverUI(spectator.result, 'w', 'b', { spectator: true });
+}
+
+// ---- Online: RESUME (used on page load) ----
+async function tryResumeOnLoad() {
+  const code = readUrlCode();
+  if (!code) return false;
+  const saved = loadToken(code);
+  if (!saved || !saved.token) return false;
+  try { await ensureWs(); } catch(e) { return false; }
+  myCode = code; myToken = saved.token; myColor = saved.color || null;
+  sendWs({ type: 'resume', code, token: saved.token });
+  return true;
+}
+function onResumed(msg) {
+  myCode = msg.code; myColor = msg.color;
+  online.tc = msg.tc;
+  saveToken(myCode, myToken, myColor);
+  mode = 'online-player';
+  humanColor = myColor;
+  aiColor = myColor === 'w' ? 'b' : 'w';
+  boardOrientation = myColor;
+  setUrlHash(myCode);
+  applyPlayerSnapshot(msg.snapshot, { isStart: false, isResume: true });
+  startClockTicker();
+}
+
+// ---- Online: STARTED ----
+function onStarted(msg) {
+  if (msg.snapshot && msg.snapshot.role === 'spectator') {
+    // spectator already initialized via onSpectating; but refresh just in case.
+    applySpectatorSnapshot(msg.snapshot);
+    renderBoard();
+    renderCapturedRows();
+    renderClocks();
+    return;
+  }
+  mode = 'online-player';
+  humanColor = myColor;
+  aiColor = myColor === 'w' ? 'b' : 'w';
+  boardOrientation = myColor;
+  showGameUi();
+  modeLabel.textContent = `Online ${myCode} \u2014 you play ${myColor === 'w' ? 'White' : 'Black'}`;
+  newGameBtn.textContent = 'Leave';
+  resignBtn.style.display = '';
+  shareGameBtn.style.display = '';
+  moveInputRow.style.display = '';
+  selfBanner.textContent = `You (${myColor === 'w' ? 'White' : 'Black'})`;
+  opponentBanner.textContent = `Opponent (${myColor === 'w' ? 'Black' : 'White'})`;
+  connectionBanner.classList.remove('show');
+  clearLog();
+  logLine(`Game <b>${myCode}</b> started. You play <b>${myColor === 'w' ? 'White' : 'Black'}</b>.`, 'system');
+  applyPlayerSnapshot(msg.snapshot, { isStart: true });
+  startClockTicker();
+}
+
+// ---- Online: snapshots ----
+function applyPlayerSnapshot(snap, flags) {
+  if (!snap) return;
+  // Reconstruct PlayerView from server snapshot.
+  human = new PlayerView(myColor);
+  human.ownBoard = snap.ownBoard || human.ownBoard;
+  human.capturedByMe = (snap.capturedByMe || []).slice();
+  human.capturedByThem = (snap.capturedByThem || []).slice();
+  human.lastOwnMove = snap.lastOwnMove || null;
+  human.lastEnemyCaptureSquare = null;
+  online.gameOver = !!snap.gameOver;
+  online.result = snap.result || null;
+  online.finalBoard = snap.finalBoard || null;
+  online.whiteMs = snap.whiteMs || 0;
+  online.blackMs = snap.blackMs || 0;
+  online.clockTurn = snap.turn;
+  online.clockRunning = !!snap.clockRunning;
+  online.clockSyncAt = Date.now();
+  online.pawnTries = snap.pawnTries || 0;
+  online.pawnAttemptsThisTurn = snap.pawnAttemptsThisTurn || 0;
+  online.inCheckDirections = snap.inCheckDirections || null;
+  online.opponentPresent = !!snap.bothConnected;
+  gameActive = !online.gameOver;
+  selectedSq = null;
+  buildBoard();
+  renderBoard();
+  renderCapturedRows();
+  renderClocks();
+  updatePawnTriesUi();
+  updateTurnStatus();
+  if (flags && flags.isResume) {
+    logLine('<span class="system">Reconnected to game ' + myCode + '.</span>', 'system');
+  }
+  connectionBanner.classList.remove('show');
+  if (!online.opponentPresent) showOpponentDisconnectedBanner();
+  if (online.gameOver) applyGameOverUI(online.result, myColor, aiColor, { spectator: false });
+}
+function applySpectatorSnapshot(snap) {
+  if (!snap) return;
+  spectator.board = snap.board || emptyBoard();
+  spectator.turn = snap.turn || 'w';
+  spectator.gameOver = !!snap.gameOver;
+  spectator.result = snap.result || null;
+  spectator.lastMoveByWhite = snap.lastMoveByWhite || null;
+  spectator.lastMoveByBlack = snap.lastMoveByBlack || null;
+  spectator.capturedByWhite = (snap.capturedByWhite || []).slice();
+  spectator.capturedByBlack = (snap.capturedByBlack || []).slice();
+  spectator.whiteMs = snap.whiteMs || 0;
+  spectator.blackMs = snap.blackMs || 0;
+  spectator.clockTurn = snap.turn || 'w';
+  spectator.clockRunning = !!snap.clockRunning;
+  spectator.clockSyncAt = Date.now();
+  gameActive = !spectator.gameOver;
+  const who = spectator.turn === 'w' ? 'White' : 'Black';
+  setStatus(spectator.gameOver
+    ? 'Game over.'
+    : `${who} to move.`, spectator.gameOver ? 'gameover' : 'turn');
+}
+
+// ---- Online: attempting a move as player ----
+function attemptHumanMoveOnline(desired) {
+  if (online.gameOver) return;
+  online.awaitingMoveAck = true;
+  online.lastPendingMove = desired;
+  sendWs({ type: 'move', desired });
+}
+function onMoveAccepted(msg) {
+  online.awaitingMoveAck = false;
+  const move = msg.move;
+  // Apply to our view
+  human.applyOwnMove(move);
+  online.inCheckDirections = null; // we just moved; any check was cleared by our own move or applies to opponent
+  // Announcements — our own move's captures also mean we captured opponent piece
+  applyAnnouncementsToView(msg.announcements, true);
+  if (!msg.gameOver) {
+    logLine(`<span class="ok">You: ${moveDesc(move)} \u2192 Referee: move made.</span>`, 'ok');
+  }
+  // Clock update from server
+  online.whiteMs = msg.whiteMs; online.blackMs = msg.blackMs;
+  online.clockTurn = msg.turn; online.clockRunning = !!msg.clockRunning;
+  online.clockSyncAt = Date.now();
+  online.pawnAttemptsThisTurn = 0;
+  online.gameOver = !!msg.gameOver;
+  online.result = msg.result || null;
+  online.finalBoard = msg.finalBoard || null;
+  selectedSq = null;
+  renderBoard();
+  renderCapturedRows();
+  renderClocks();
+  moveInputEl.value = '';
+  playTone(msg.announcements.some(a => a.kind === 'capture') ? 'capture' : 'move');
+  if (msg.announcements.some(a => a.kind === 'check')) setTimeout(() => playTone('check'), 180);
+  if (online.gameOver) {
+    playTone('end');
+    applyGameOverUI(online.result, myColor, aiColor, { spectator: false });
+  } else {
+    updatePawnTriesUi();
+    updateTurnStatus();
+  }
+}
+function onMoveRejected(msg) {
+  online.awaitingMoveAck = false;
+  const firstAnn = (msg.announcements || [])[0] || {};
+  const desc = online.lastPendingMove ? moveDesc(online.lastPendingMove) : '?';
+  if (firstAnn.kind === 'pawn-attempts-exhausted') {
+    logLine(`<span class="illegal">You: ${desc} \u2192 Referee: ${firstAnn.text}</span>`, 'illegal');
+    setStatus(firstAnn.text, 'turn');
+  } else {
+    logLine(`<span class="illegal">You: ${desc} \u2192 Referee: No.</span>`, 'illegal');
+    const used = msg.pawnAttemptsThisTurn || 0;
+    const remaining = MAX_PAWN_ATTEMPTS - used;
+    if (used > 0 && remaining > 0) {
+      setStatus(`Referee says <b>No</b>. (${remaining} pawn-capture attempt${remaining===1?'':'s'} left.)`, 'turn');
+    } else if (used > 0 && remaining === 0) {
+      setStatus('Referee says <b>No</b>. Pawn-capture attempts exhausted \u2014 try something else.', 'turn');
+    } else {
+      setStatus('Referee says <b>No</b>. Try another move.', 'turn');
+    }
+  }
+  online.pawnTries = msg.pawnTries || 0;
+  online.pawnAttemptsThisTurn = msg.pawnAttemptsThisTurn || 0;
+  selectedSq = null;
+  renderBoard();
+  updatePawnTriesUi();
+  playTone('illegal');
+}
+function onOpponentMoved(msg) {
+  // Opponent moved silently — update our view for captures/checks.
+  human.opponentSilentMove();
+  logLine('<span class="announce">Referee: opponent has moved.</span>', 'announce');
+  applyAnnouncementsToView(msg.announcements, false);
+  online.whiteMs = msg.whiteMs; online.blackMs = msg.blackMs;
+  online.clockTurn = msg.turn; online.clockRunning = !!msg.clockRunning;
+  online.clockSyncAt = Date.now();
+  online.pawnTries = msg.pawnTries || 0;
+  online.pawnAttemptsThisTurn = msg.pawnAttemptsThisTurn || 0;
+  online.gameOver = !!msg.gameOver;
+  online.result = msg.result || null;
+  online.finalBoard = msg.finalBoard || null;
+  // If WE are now the one in check, capture direction info from announcement
+  const chk = (msg.announcements || []).find(a => a.kind === 'check' && a.checkedColor === myColor);
+  online.inCheckDirections = chk ? (chk.directions || []) : null;
+  playTone(msg.announcements.some(a => a.kind === 'capture') ? 'capture' : 'move');
+  if (msg.announcements.some(a => a.kind === 'check')) setTimeout(() => playTone('check'), 180);
+  renderBoard();
+  renderCapturedRows();
+  renderClocks();
+  if (online.gameOver) {
+    playTone('end');
+    applyGameOverUI(online.result, myColor, aiColor, { spectator: false });
+  } else {
+    updatePawnTriesUi();
+    updateTurnStatus();
+  }
+}
+function onSpectatorUpdate(msg) {
+  spectator.board = msg.board;
+  spectator.turn = msg.turn;
+  spectator.lastMoveByWhite = msg.lastMoveByWhite;
+  spectator.lastMoveByBlack = msg.lastMoveByBlack;
+  spectator.whiteMs = msg.whiteMs; spectator.blackMs = msg.blackMs;
+  spectator.clockTurn = msg.turn; spectator.clockRunning = !!msg.clockRunning;
+  spectator.clockSyncAt = Date.now();
+  spectator.capturedByWhite = (msg.capturedByWhite || []).slice();
+  spectator.capturedByBlack = (msg.capturedByBlack || []).slice();
+  spectator.gameOver = !!msg.gameOver;
+  spectator.result = msg.result || null;
+  const who = (msg.moverColor === 'w' ? 'White' : 'Black');
+  logLine(`<span class="ok">${who}: ${moveDesc({ from: msg.move.from, to: msg.move.to })} \u2192 Referee: move made.</span>`, 'ok');
+  applyAnnouncementsSpectator(msg.announcements, msg.moverColor);
+  playTone(msg.announcements.some(a => a.kind === 'capture') ? 'capture' : 'move');
+  if (msg.announcements.some(a => a.kind === 'check')) setTimeout(() => playTone('check'), 180);
+  renderBoard();
+  renderCapturedRows();
+  renderClocks();
+  if (spectator.gameOver) {
+    playTone('end');
+    applyGameOverUI(spectator.result, 'w', 'b', { spectator: true });
+  } else {
+    const turn = spectator.turn === 'w' ? 'White' : 'Black';
+    setStatus(`${turn} to move.`, 'turn');
+  }
+}
+function onClockUpdate(msg) {
+  if (mode === 'online-player') {
+    online.whiteMs = msg.whiteMs; online.blackMs = msg.blackMs;
+    online.clockTurn = msg.turn; online.clockRunning = !!msg.clockRunning;
+    online.clockSyncAt = Date.now();
+  } else if (mode === 'online-spectator') {
+    spectator.whiteMs = msg.whiteMs; spectator.blackMs = msg.blackMs;
+    spectator.clockTurn = msg.turn; spectator.clockRunning = !!msg.clockRunning;
+    spectator.clockSyncAt = Date.now();
+  }
+  renderClocks();
+}
+function onOpponentDisconnected(msg) {
+  if (mode === 'online-player') {
+    online.opponentPresent = false;
+    online.clockRunning = false; online.whiteMs = msg.whiteMs || online.whiteMs; online.blackMs = msg.blackMs || online.blackMs;
+    online.clockSyncAt = Date.now();
+    renderClocks();
+    showOpponentDisconnectedBanner();
+  } else if (mode === 'online-spectator') {
+    spectator.clockRunning = false;
+    spectator.clockSyncAt = Date.now();
+    renderClocks();
+  }
+}
+function onOpponentReconnected(msg) {
+  if (mode === 'online-player') {
+    online.opponentPresent = true;
+    connectionBanner.classList.remove('show');
+    logLine('<span class="system">Opponent reconnected.</span>', 'system');
+  } else if (mode === 'online-spectator') {
+    connectionBanner.classList.remove('show');
+  }
+}
+function onEnded(msg) {
+  if (mode === 'online-player') {
+    online.gameOver = true;
+    online.result = msg.result;
+    online.finalBoard = msg.finalBoard || online.finalBoard;
+    online.clockRunning = false;
+    gameActive = false;
+    playTone('end');
+    renderBoard();
+    applyGameOverUI(online.result, myColor, aiColor, { spectator: false });
+  } else if (mode === 'online-spectator') {
+    spectator.gameOver = true;
+    spectator.result = msg.result;
+    spectator.clockRunning = false;
+    gameActive = false;
+    playTone('end');
+    if (msg.finalBoard) spectator.board = msg.finalBoard;
+    renderBoard();
+    applyGameOverUI(spectator.result, 'w', 'b', { spectator: true });
+  }
+}
+function showOpponentDisconnectedBanner() {
+  connectionBanner.classList.add('show');
+  connectionBanner.textContent = 'Opponent disconnected. Clocks paused \u2014 waiting for them to return.';
+}
+function updateTurnStatus() {
+  if (online.gameOver) return;
+  if (!online.opponentPresent) {
+    setStatus('Waiting for opponent to reconnect…', 'warning');
+    return;
+  }
+  if (online.clockTurn === myColor) {
+    const tries = online.pawnTries;
+    if (online.inCheckDirections && online.inCheckDirections.length) {
+      setStatus(`You are in check by <b>${online.inCheckDirections.join(' and ')}</b>!`, 'check');
+    } else {
+      setStatus('Your move. Click a piece and a target, or type a move.', 'turn');
+    }
+    if (tries && !logEl.lastElementChild?.textContent?.includes('pawn')) {
+      // no-op; we already announce pawn tries on turn start via header
+    }
+  } else {
+    setStatus('Opponent\u2019s move…', '');
+  }
+}
+
+// ====================================================================
+// GAME OVER MODAL (shared)
+// ====================================================================
+function applyGameOverUI(r, myC, oppC, opts) {
+  if (!r) return;
+  let title = 'Game Over';
+  let text = '';
+  if (r.type === 'checkmate') {
+    const winner = r.winner === 'w' ? 'White' : 'Black';
+    text = `Checkmate. ${winner} wins.`;
+    if (!opts.spectator) title = r.winner === myC ? 'Victory' : 'Defeat';
+  } else if (r.type === 'stalemate') {
+    title = 'Draw'; text = 'Stalemate.';
+  } else if (r.type === 'resign') {
+    const winner = r.winner === 'w' ? 'White' : 'Black';
+    if (!opts.spectator) title = r.winner === myC ? 'Victory' : 'Defeat';
+    text = `${r.winner === 'w' ? 'Black' : 'White'} resigned. ${winner} wins.`;
+  } else if (r.type === 'time') {
+    const winner = r.winner === 'w' ? 'White' : 'Black';
+    if (!opts.spectator) title = r.winner === myC ? 'Victory' : 'Defeat';
+    text = `${r.winner === 'w' ? 'Black' : 'White'} ran out of time. ${winner} wins.`;
+  }
+  setStatus(`<b>${text}</b>`, 'gameover');
+  logLine(`<b class="check">${text}</b>`, 'check');
+  gameOverTitle.textContent = title;
+  gameOverText.textContent = text;
+  gameOverModal.classList.add('show');
+}
+function showGameOverModal(r, myC, oppC) {
+  applyGameOverUI(r, myC, oppC, { spectator: false });
+}
+
+// ====================================================================
+// EVENT WIRING
+// ====================================================================
+submitMoveBtn.addEventListener('click', () => {
+  const me = myColorOfRenderer();
+  if (!me) return;
+  const desired = parseMoveInput(moveInputEl.value, me);
+  if (!desired) {
+    logLine('<span class="illegal">Could not parse: ' + moveInputEl.value + '</span>', 'illegal');
+    return;
+  }
+  attemptPlayerMove(desired);
+});
+moveInputEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); submitMoveBtn.click(); }
+});
+
+// AI panel
+document.getElementById('startAiBtn').addEventListener('click', () => {
+  startAiGame();
+});
+
+// Create panel
+document.getElementById('createBtn').addEventListener('click', createOnlineGame);
+
+// Join panel
+document.getElementById('joinBtn').addEventListener('click', () => {
+  const code = document.getElementById('joinCode').value;
+  joinOnlineGame(code);
+});
+document.getElementById('joinCode').addEventListener('input', (e) => {
+  e.target.value = e.target.value.toUpperCase().replace(/[^A-Z2-9]/g,'').slice(0,5);
+});
+
+// Spectate panel
+document.getElementById('spectateBtn').addEventListener('click', () => {
+  const code = document.getElementById('spectateCode').value;
+  spectateOnlineGame(code);
+});
+document.getElementById('spectateCode').addEventListener('input', (e) => {
+  e.target.value = e.target.value.toUpperCase().replace(/[^A-Z2-9]/g,'').slice(0,5);
+});
+
+// In-game buttons
+newGameBtn.addEventListener('click', () => {
+  // "Leave Game" in all online modes; "New Game" in AI mode.
+  if (mode === 'ai') {
+    if (gameActive && !confirm('End current game and return to the lobby?')) return;
+    gameActive = false;
+    showLobby();
+  } else {
+    if (gameActive && !confirm('Leave this game?')) return;
+    try { ws && ws.close(); } catch(e) {}
+    ws = null;
+    stopClockTicker();
+    mode = 'lobby';
+    gameActive = false;
+    clearSavedToken(myCode);
+    myCode = null; myToken = null; myColor = null;
+    showLobby();
+  }
+});
+resignBtn.addEventListener('click', () => {
+  if (!gameActive) return;
+  if (!confirm('Resign the game?')) return;
+  if (mode === 'ai') {
+    endAiGame({ type: 'resign', winner: aiColor });
+  } else if (mode === 'online-player') {
+    sendWs({ type: 'resign' });
+  }
+});
+shareGameBtn.addEventListener('click', () => {
+  const link = location.origin + location.pathname + '#' + myCode;
+  try { navigator.clipboard.writeText(link); alert('Link copied:\n' + link); }
+  catch(e) { prompt('Share this link:', link); }
+});
+
+// ====================================================================
+// BOOT
+// ====================================================================
+async function boot() {
+  // Initial lobby render
+  buildBoard();
+  renderBoard();
+  showLobby();
+
+  // If URL has a code and we have a token, try to resume as player.
+  const code = readUrlCode();
+  if (code) {
+    const saved = loadToken(code);
+    if (saved && saved.token) {
+      if (await tryResumeOnLoad()) {
+        return;
+      }
+    }
+    // No valid token — offer to join/spectate using the code in URL.
+    document.getElementById('joinCode').value = code;
+    document.getElementById('spectateCode').value = code;
+    showModePanel('join-online');
+  }
+}
+boot();
+</script>
+</body>
+</html>

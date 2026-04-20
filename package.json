@@ -1,0 +1,16 @@
+{
+  "name": "blitzkrieg-chess",
+  "version": "1.1.0",
+  "description": "Blitzkrieg (Kriegspiel) chess — chess in the fog, with an AI opponent and online two-player mode.",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

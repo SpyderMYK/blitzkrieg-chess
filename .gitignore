@@ -1,0 +1,9 @@
+node_modules/
+.DS_Store
+.env
+*.log
+.railway/
+
+# The page uses the optimized knight.jpg. Keep the original PNG locally as a
+# source/archive, but don't ship 2.7 MB to the server on every deploy.
+knight.png
