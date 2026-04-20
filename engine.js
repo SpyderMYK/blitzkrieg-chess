@@ -443,6 +443,17 @@
           captorColor: color
         });
       }
+      // Promotion: tell both sides a pawn just turned into something bigger.
+      // In Kriegspiel the opponent needs to know the new piece exists, because
+      // their strategic model of the board has to account for it.
+      if (matched.promo) {
+        announcements.push({
+          kind: 'promotion',
+          square: sqName(matched.to.r, matched.to.c),
+          piece: matched.promo,          // 'Q','R','B','N' or lowercase
+          promoteColor: color
+        });
+      }
       const otherColor = color === 'w' ? 'b' : 'w';
       if (inCheck(this.state, otherColor)) {
         const dirs = checkDirections(this.state.board, otherColor);

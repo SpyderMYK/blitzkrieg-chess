@@ -178,6 +178,7 @@
   .log .announce { color: #f0e442; }                                            /* yellow   — info */
   .log .capture  { color: #cc79a7; font-weight: bold; }                         /* magenta — captures */
   .log .check    { color: #e69f00; font-weight: bold; text-decoration: underline; } /* amber   — check */
+  .log .promo    { color: #009e73; font-weight: bold; }                         /* green   — promotion */
   .log .illegal  { color: #a0a0a0; font-style: italic; }                        /* gray    — rejected */
   .log .ok       { color: #56b4e9; }                                            /* sky blue — accepted */
   .log .system   { color: #9dd2ff; }
@@ -762,6 +763,9 @@ const {
 
 // Minimum time (ms) between the AI starting to think and the move being announced.
 const AI_MIN_THINK_MS = 2000;
+
+// Human-readable piece names for announcements.
+const PIECE_NAME = { K: 'King', Q: 'Queen', R: 'Rook', B: 'Bishop', N: 'Knight', P: 'Pawn' };
 
 // ====================================================================
 // SOUND — simple Web Audio tones (no external files).
@@ -1400,6 +1404,12 @@ function applyAnnouncementsToView(announcements, isMine) {
         const yours = isPawn ? 'your pawn' : 'your piece';
         logLine(`<span class="capture">Referee: ${yours} captured on <b>${a.square}</b>.</span>`, 'capture');
       }
+    } else if (a.kind === 'promotion') {
+      // Announce the fact, not the square. The Kriegspiel-public info is:
+      // "a pawn just became something bigger — here's what kind."
+      const pieceName = PIECE_NAME[kindOf(a.piece)] || 'piece';
+      const who = a.promoteColor === myColorOfRenderer() ? 'Your' : "Opponent's";
+      logLine(`<span class="promo">Referee: ${who} pawn promoted to ${pieceName}.</span>`, 'promo');
     } else if (a.kind === 'check') {
       const dirTxt = (a.directions && a.directions.length) ? a.directions.join(' and ') : 'unknown';
       const checkedWho = a.checkedColor === 'w' ? 'White' : 'Black';
@@ -1420,6 +1430,10 @@ function applyAnnouncementsSpectator(announcements, moverColor) {
       const label = isPawn ? 'Pawn' : 'Piece';
       const who = a.captorColor === 'w' ? 'White' : 'Black';
       logLine(`<span class="capture">Referee: ${label.toLowerCase()} captured on <b>${a.square}</b> by ${who}.</span>`, 'capture');
+    } else if (a.kind === 'promotion') {
+      const pieceName = PIECE_NAME[kindOf(a.piece)] || 'piece';
+      const who = a.promoteColor === 'w' ? 'White' : 'Black';
+      logLine(`<span class="promo">Referee: ${who} pawn promoted to ${pieceName}.</span>`, 'promo');
     } else if (a.kind === 'check') {
       const dirTxt = (a.directions && a.directions.length) ? a.directions.join(' and ') : 'unknown';
       const checkedWho = a.checkedColor === 'w' ? 'White' : 'Black';
