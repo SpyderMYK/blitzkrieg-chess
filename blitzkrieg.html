@@ -648,6 +648,10 @@
         <input type="checkbox" id="soundToggle" checked />
         Sound
       </label>
+      <label class="sound-toggle">
+        <input type="checkbox" id="voiceToggle" checked />
+        Voice
+      </label>
     </div>
     <div class="connection-banner" id="connectionBanner"></div>
     <div class="status" id="status">Loading…</div>
@@ -781,6 +785,31 @@ function audioCtx() {
 function soundEnabled() {
   const el = document.getElementById('soundToggle');
   return el ? el.checked : true;
+}
+function voiceEnabled() {
+  const el = document.getElementById('voiceToggle');
+  return el ? el.checked : true;
+}
+// Spoken announcements via the Web Speech API. No external dependency;
+// uses whatever default voice the browser has installed. Respects the
+// Voice toggle. Queues naturally — multiple announcements (capture +
+// promotion + check) speak in sequence without clobbering each other.
+// "e4" → "E 4" so the TTS voice pronounces file letter + rank number
+// distinctly instead of running them together.
+function speakSquare(sq) {
+  if (!sq || sq.length < 2) return sq || '';
+  return sq[0].toUpperCase() + ' ' + sq.slice(1);
+}
+function speak(text) {
+  if (!voiceEnabled()) return;
+  if (typeof window === 'undefined' || !window.speechSynthesis) return;
+  try {
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.0;
+    u.pitch = 1.0;
+    u.volume = 1.0;
+    window.speechSynthesis.speak(u);
+  } catch (e) { /* ignore — speech is best-effort */ }
 }
 function playTone(kind) {
   if (!soundEnabled()) return;
@@ -1219,14 +1248,19 @@ function renderTokens(el, labelText, pieces, pawnColor) {
 // ====================================================================
 // LOG + STATUS
 // ====================================================================
-function logLine(text, cls) {
+// Newest log entry goes on top (easier to read on mobile without scrolling).
+// Optional third argument `speech` is a plain-text version spoken by the
+// referee when Voice is enabled. HTML is not suitable for speech, so callers
+// pass a separate plain-text phrase for anything worth saying out loud.
+function logLine(text, cls, speech) {
   const d = document.createElement('div');
   d.className = 'entry ' + (cls || '');
   d.innerHTML = text;
-  logEl.appendChild(d);
-  logEl.scrollTop = logEl.scrollHeight;
+  logEl.insertBefore(d, logEl.firstChild);
+  logEl.scrollTop = 0;
+  if (speech) speak(speech);
 }
-function logTurnHeader(who) { logLine(who, 'turn-header'); }
+function logTurnHeader(who, speech) { logLine(who, 'turn-header', speech); }
 function clearLog() { logEl.innerHTML = ''; }
 function setStatus(text, type) {
   statusEl.className = 'status ' + (type || '');
@@ -1397,23 +1431,39 @@ function applyAnnouncementsToView(announcements, isMine) {
         // if the mover (us) triggered the announcement. Server already tracks this in online
         // but the view's capturedByMe is our own in-memory mirror.
         if (isMine) human.capturedByMe.push(a.piece);
-        logLine(`<span class="capture">Referee: ${label.toLowerCase()} captured on <b>${a.square}</b>.</span>`, 'capture');
+        logLine(
+          `<span class="capture">Referee: ${label.toLowerCase()} captured on <b>${a.square}</b>.</span>`,
+          'capture',
+          `${label} captured on ${speakSquare(a.square)}.`
+        );
       } else {
         // Opponent captured our piece.
         human.opponentCapturedAt(r, c);
         const yours = isPawn ? 'your pawn' : 'your piece';
-        logLine(`<span class="capture">Referee: ${yours} captured on <b>${a.square}</b>.</span>`, 'capture');
+        logLine(
+          `<span class="capture">Referee: ${yours} captured on <b>${a.square}</b>.</span>`,
+          'capture',
+          `Your ${isPawn ? 'pawn' : 'piece'} captured on ${speakSquare(a.square)}.`
+        );
       }
     } else if (a.kind === 'promotion') {
       // Announce the fact, not the square. The Kriegspiel-public info is:
       // "a pawn just became something bigger — here's what kind."
       const pieceName = PIECE_NAME[kindOf(a.piece)] || 'piece';
       const who = a.promoteColor === myColorOfRenderer() ? 'Your' : "Opponent's";
-      logLine(`<span class="promo">Referee: ${who} pawn promoted to ${pieceName}.</span>`, 'promo');
+      logLine(
+        `<span class="promo">Referee: ${who} pawn promoted to ${pieceName}.</span>`,
+        'promo',
+        `${who} pawn promoted to ${pieceName}.`
+      );
     } else if (a.kind === 'check') {
       const dirTxt = (a.directions && a.directions.length) ? a.directions.join(' and ') : 'unknown';
       const checkedWho = a.checkedColor === 'w' ? 'White' : 'Black';
-      logLine(`<span class="check">Referee: ${checkedWho} is in check by ${dirTxt}.</span>`, 'check');
+      logLine(
+        `<span class="check">Referee: ${checkedWho} is in check by ${dirTxt}.</span>`,
+        'check',
+        `${checkedWho} is in check by ${dirTxt}.`
+      );
       if (a.checkedColor === myColorOfRenderer()) {
         if (mode === 'online-player') online.inCheckDirections = a.directions || [];
         const k = findKing(human.ownBoard, myColorOfRenderer());
@@ -1429,15 +1479,27 @@ function applyAnnouncementsSpectator(announcements, moverColor) {
       const isPawn = kindOf(a.piece) === 'P';
       const label = isPawn ? 'Pawn' : 'Piece';
       const who = a.captorColor === 'w' ? 'White' : 'Black';
-      logLine(`<span class="capture">Referee: ${label.toLowerCase()} captured on <b>${a.square}</b> by ${who}.</span>`, 'capture');
+      logLine(
+        `<span class="capture">Referee: ${label.toLowerCase()} captured on <b>${a.square}</b> by ${who}.</span>`,
+        'capture',
+        `${label} captured on ${speakSquare(a.square)} by ${who}.`
+      );
     } else if (a.kind === 'promotion') {
       const pieceName = PIECE_NAME[kindOf(a.piece)] || 'piece';
       const who = a.promoteColor === 'w' ? 'White' : 'Black';
-      logLine(`<span class="promo">Referee: ${who} pawn promoted to ${pieceName}.</span>`, 'promo');
+      logLine(
+        `<span class="promo">Referee: ${who} pawn promoted to ${pieceName}.</span>`,
+        'promo',
+        `${who} pawn promoted to ${pieceName}.`
+      );
     } else if (a.kind === 'check') {
       const dirTxt = (a.directions && a.directions.length) ? a.directions.join(' and ') : 'unknown';
       const checkedWho = a.checkedColor === 'w' ? 'White' : 'Black';
-      logLine(`<span class="check">Referee: ${checkedWho} is in check by ${dirTxt}.</span>`, 'check');
+      logLine(
+        `<span class="check">Referee: ${checkedWho} is in check by ${dirTxt}.</span>`,
+        'check',
+        `${checkedWho} is in check by ${dirTxt}.`
+      );
     }
   }
 }
@@ -1606,14 +1668,22 @@ function beginAiTurn() {
     const tries = referee.pawnTries(humanColor);
     const who = humanColor === 'w' ? 'White' : 'Black';
     logTurnHeader(`— ${who} to move —`);
-    logLine(`<span class="announce">Referee: ${who} to move. ${who} has ${tries} pawn ${tries===1?'try':'tries'}.</span>`, 'announce');
+    logLine(
+      `<span class="announce">Referee: ${who} to move. ${who} has ${tries} pawn ${tries===1?'try':'tries'}.</span>`,
+      'announce',
+      `${who} to move. ${tries===0 ? 'No pawn tries.' : `${tries} pawn ${tries===1?'try':'tries'}.`}`
+    );
     updatePawnTriesUi();
     setStatus('Your move. Click a piece and a target, or type a move.', 'turn');
   } else {
     const tries = referee.pawnTries(aiColor);
     const who = aiColor === 'w' ? 'White' : 'Black';
     logTurnHeader(`— ${who} to move —`);
-    logLine(`<span class="announce">Referee: ${who} to move. ${who} has ${tries} pawn ${tries===1?'try':'tries'}.</span>`, 'announce');
+    logLine(
+      `<span class="announce">Referee: ${who} to move. ${who} has ${tries} pawn ${tries===1?'try':'tries'}.</span>`,
+      'announce',
+      `${who} to move. ${tries===0 ? 'No pawn tries.' : `${tries} pawn ${tries===1?'try':'tries'}.`}`
+    );
     pawnTriesEl.textContent = 'opponent\u2019s turn';
     pawnTriesEl.className = 'pawn-tries none';
     setStatus('Computer is thinking\u2026', '');
@@ -1626,10 +1696,18 @@ function attemptHumanMoveAi(desired, me) {
   if (!result.ok) {
     const firstAnn = result.announcements[0] || {};
     if (firstAnn.kind === 'pawn-attempts-exhausted') {
-      logLine(`<span class="illegal">You: ${moveDesc(desired)} \u2192 Referee: ${firstAnn.text}</span>`, 'illegal');
+      logLine(
+        `<span class="illegal">You: ${moveDesc(desired)} \u2192 Referee: ${firstAnn.text}</span>`,
+        'illegal',
+        firstAnn.text
+      );
       setStatus(firstAnn.text, 'turn');
     } else {
-      logLine('<span class="illegal">You: ' + moveDesc(desired) + ' \u2192 Referee: No.</span>', 'illegal');
+      logLine(
+        '<span class="illegal">You: ' + moveDesc(desired) + ' \u2192 Referee: No.</span>',
+        'illegal',
+        'No.'
+      );
       const used = referee.pawnAttemptsThisTurn;
       const remaining = MAX_PAWN_ATTEMPTS - used;
       if (used > 0 && remaining > 0) {
@@ -1923,9 +2001,23 @@ function onStarted(msg) {
   opponentBanner.textContent = `Opponent (${myColor === 'w' ? 'Black' : 'White'})`;
   connectionBanner.classList.remove('show');
   clearLog();
-  logLine(`Game <b>${myCode}</b> started. You play <b>${myColor === 'w' ? 'White' : 'Black'}</b>.`, 'system');
+  const youColorName = myColor === 'w' ? 'White' : 'Black';
+  logLine(
+    `Game <b>${myCode}</b> started. You play <b>${youColorName}</b>.`,
+    'system',
+    `Game on. You play ${youColorName}.`
+  );
   applyPlayerSnapshot(msg.snapshot, { isStart: true });
   startClockTicker();
+  // If I'm White I move first — announce it so speech kicks in immediately.
+  if (myColor === 'w' && !online.gameOver) {
+    const tries = online.pawnTries || 0;
+    logLine(
+      `<span class="announce">Referee: White to move. You have ${tries} pawn ${tries===1?'try':'tries'}.</span>`,
+      'announce',
+      `Your turn. ${tries===0 ? 'No pawn tries.' : `${tries} pawn ${tries===1?'try':'tries'}.`}`
+    );
+  }
 }
 
 // ---- Online: snapshots ----
@@ -2033,10 +2125,18 @@ function onMoveRejected(msg) {
   const firstAnn = (msg.announcements || [])[0] || {};
   const desc = online.lastPendingMove ? moveDesc(online.lastPendingMove) : '?';
   if (firstAnn.kind === 'pawn-attempts-exhausted') {
-    logLine(`<span class="illegal">You: ${desc} \u2192 Referee: ${firstAnn.text}</span>`, 'illegal');
+    logLine(
+      `<span class="illegal">You: ${desc} \u2192 Referee: ${firstAnn.text}</span>`,
+      'illegal',
+      firstAnn.text
+    );
     setStatus(firstAnn.text, 'turn');
   } else {
-    logLine(`<span class="illegal">You: ${desc} \u2192 Referee: No.</span>`, 'illegal');
+    logLine(
+      `<span class="illegal">You: ${desc} \u2192 Referee: No.</span>`,
+      'illegal',
+      'No.'
+    );
     const used = msg.pawnAttemptsThisTurn || 0;
     const remaining = MAX_PAWN_ATTEMPTS - used;
     if (used > 0 && remaining > 0) {
@@ -2059,6 +2159,17 @@ function onOpponentMoved(msg) {
   human.opponentSilentMove();
   logLine('<span class="announce">Referee: opponent has moved.</span>', 'announce');
   applyAnnouncementsToView(msg.announcements, false);
+  // Referee announces the new turn + pawn tries so online players get the
+  // same spoken prompt AI-mode players do.
+  if (!msg.gameOver) {
+    const tries = msg.pawnTries || 0;
+    const youWho = myColor === 'w' ? 'White' : 'Black';
+    logLine(
+      `<span class="announce">Referee: ${youWho} to move. You have ${tries} pawn ${tries===1?'try':'tries'}.</span>`,
+      'announce',
+      `Your turn. ${tries===0 ? 'No pawn tries.' : `${tries} pawn ${tries===1?'try':'tries'}.`}`
+    );
+  }
   online.whiteMs = msg.whiteMs; online.blackMs = msg.blackMs;
   online.clockTurn = msg.turn; online.clockRunning = !!msg.clockRunning;
   online.clockSyncAt = Date.now();
@@ -2214,7 +2325,7 @@ function applyGameOverUI(r, myC, oppC, opts) {
     text = `${r.winner === 'w' ? 'Black' : 'White'} ran out of time. ${winner} wins.`;
   }
   setStatus(`<b>${text}</b>`, 'gameover');
-  logLine(`<b class="check">${text}</b>`, 'check');
+  logLine(`<b class="check">${text}</b>`, 'check', text);
   gameOverTitle.textContent = title;
   gameOverText.textContent = text;
   gameOverModal.classList.add('show');
