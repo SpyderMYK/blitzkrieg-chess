@@ -274,6 +274,25 @@
     z-index: 100;
   }
   .modal-backdrop.show { display: flex; }
+  /* Confetti overlay sits above the board and below the modal, so the
+     victory modal remains interactive while the celebration plays. */
+  #confetti {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 90;
+    display: none;
+  }
+  /* Slight pulse on the victory title so it reads as "you won" not just
+     "game over" at a glance. */
+  @keyframes victoryPulse {
+    0%, 100% { transform: scale(1); color: inherit; }
+    50% { transform: scale(1.08); color: #f0e442; }
+  }
+  .modal.victory h2 {
+    animation: victoryPulse 1.2s ease-in-out 2;
+    text-shadow: 0 0 8px rgba(240,228,66,0.6);
+  }
   .modal {
     background: #3a3a3a;
     padding: 20px;
@@ -753,12 +772,14 @@
 </div>
 
 <div class="modal-backdrop" id="gameOverModal">
-  <div class="modal">
+  <div class="modal" id="gameOverModalInner">
     <h2 id="gameOverTitle">Game Over</h2>
     <p id="gameOverText"></p>
     <button class="primary" onclick="document.getElementById('gameOverModal').classList.remove('show')">Close</button>
   </div>
 </div>
+
+<canvas id="confetti"></canvas>
 
 <script src="engine.js"></script>
 <script>
@@ -777,6 +798,10 @@ const {
 
 // Minimum time (ms) between the AI starting to think and the move being announced.
 const AI_MIN_THINK_MS = 2000;
+// Hard ceiling on how long the AI is allowed to churn before we force a
+// random ground-truth-legal move. Kriegspiel endgames can otherwise chain
+// dozens of rejected guesses into long UI hangs.
+const AI_MAX_THINK_MS = 5000;
 
 // Human-readable piece names for announcements.
 const PIECE_NAME = { K: 'King', Q: 'Queen', R: 'Rook', B: 'Bishop', N: 'Knight', P: 'Pawn' };
@@ -859,6 +884,146 @@ function playTone(kind) {
 }
 
 // ====================================================================
+// VICTORY CELEBRATION
+// Only fires when the local player wins (not spectators, not draws, not
+// losses). Confetti is a self-contained canvas particle system; no
+// external library. Fanfare is a major-triad arpeggio via Web Audio.
+// ====================================================================
+const CONFETTI_COLORS = [
+  '#f0e442', '#e69f00', '#cc79a7',
+  '#56b4e9', '#009e73', '#0072b2', '#d55e00', '#ffffff'
+];
+let _confettiRaf = null;
+function launchConfetti() {
+  if (!confettiCanvas) return;
+  const canvas = confettiCanvas;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  // Resize to viewport (account for device pixel ratio for crisp rendering).
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.floor(window.innerWidth * dpr);
+  canvas.height = Math.floor(window.innerHeight * dpr);
+  canvas.style.width = window.innerWidth + 'px';
+  canvas.style.height = window.innerHeight + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  canvas.style.display = 'block';
+
+  const W = window.innerWidth, H = window.innerHeight;
+  // Two bursts from opposite corners + a light rain from above. This feels
+  // more "pop the cork" than pure rain.
+  const particles = [];
+  const burst = (originX, angleMid) => {
+    for (let i = 0; i < 45; i++) {
+      const spread = 0.8;
+      const angle = angleMid + (Math.random() - 0.5) * spread;
+      const speed = 8 + Math.random() * 8;
+      particles.push({
+        x: originX, y: H - 20,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        rot: Math.random() * Math.PI * 2,
+        rotVel: (Math.random() - 0.5) * 0.25,
+        size: 6 + Math.random() * 8,
+        color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+        shape: Math.random() < 0.55 ? 'rect' : 'circle',
+        life: 0
+      });
+    }
+  };
+  burst(W * 0.1, -Math.PI / 3);              // bottom-left cannon, upward-right
+  burst(W * 0.9, -Math.PI + Math.PI / 3);    // bottom-right cannon, upward-left
+  // Gentle overhead rain
+  for (let i = 0; i < 40; i++) {
+    particles.push({
+      x: Math.random() * W,
+      y: -Math.random() * H * 0.3,
+      vx: (Math.random() - 0.5) * 2,
+      vy: 2 + Math.random() * 3,
+      rot: Math.random() * Math.PI * 2,
+      rotVel: (Math.random() - 0.5) * 0.15,
+      size: 5 + Math.random() * 7,
+      color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+      shape: Math.random() < 0.5 ? 'rect' : 'circle',
+      life: 0
+    });
+  }
+
+  const GRAV = 0.2, DRAG = 0.992, MAX_T = 5000;
+  const start = performance.now();
+  if (_confettiRaf) cancelAnimationFrame(_confettiRaf);
+
+  function frame(now) {
+    const t = now - start;
+    ctx.clearRect(0, 0, W, H);
+    let alive = 0;
+    for (const p of particles) {
+      p.vy += GRAV;
+      p.vx *= DRAG;
+      p.vy *= DRAG;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.rot += p.rotVel;
+      p.life = t;
+      // Fade out over the last second.
+      const fade = t > MAX_T - 1000 ? Math.max(0, (MAX_T - t) / 1000) : 1;
+      if (p.y > H + 40 || fade <= 0) continue;
+      alive++;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      ctx.globalAlpha = fade;
+      ctx.fillStyle = p.color;
+      if (p.shape === 'rect') {
+        ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
+      } else {
+        ctx.beginPath();
+        ctx.arc(0, 0, p.size / 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+    if (alive > 0 && t < MAX_T) {
+      _confettiRaf = requestAnimationFrame(frame);
+    } else {
+      ctx.clearRect(0, 0, W, H);
+      canvas.style.display = 'none';
+      _confettiRaf = null;
+    }
+  }
+  _confettiRaf = requestAnimationFrame(frame);
+}
+function playFanfare() {
+  if (!soundEnabled()) return;
+  const ctx = audioCtx();
+  if (!ctx) return;
+  const base = ctx.currentTime + 0.05;
+  // C major arpeggio ending on a held high C — reads as clearly triumphant.
+  const notes = [
+    { f: 523.25, t: 0.00, d: 0.22 }, // C5
+    { f: 659.25, t: 0.14, d: 0.22 }, // E5
+    { f: 783.99, t: 0.28, d: 0.22 }, // G5
+    { f: 1046.5, t: 0.44, d: 0.90 }  // C6 (hold)
+  ];
+  for (const n of notes) {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.value = n.f;
+    const t0 = base + n.t;
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(0.12, t0 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + n.d);
+    osc.connect(g).connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + n.d + 0.02);
+  }
+}
+function celebrateVictory() {
+  launchConfetti();
+  playFanfare();
+}
+
+// ====================================================================
 // GLOBAL MODE + STATE
 // Modes: 'lobby' | 'ai' | 'online-player' | 'online-spectator'
 // ====================================================================
@@ -891,6 +1056,7 @@ let online = {
   clockRunning: false,
   clockSyncAt: 0,
   pawnTries: 0,
+  pawnTriesOfMover: 0,
   pawnAttemptsThisTurn: 0,
   awaitingMoveAck: false,
   lastPendingMove: null,
@@ -948,8 +1114,10 @@ const modeLabel = document.getElementById('modeLabel');
 const promoModal = document.getElementById('promoModal');
 const promoChoices = document.getElementById('promoChoices');
 const gameOverModal = document.getElementById('gameOverModal');
+const gameOverModalInner = document.getElementById('gameOverModalInner');
 const gameOverTitle = document.getElementById('gameOverTitle');
 const gameOverText = document.getElementById('gameOverText');
+const confettiCanvas = document.getElementById('confetti');
 const opponentClockEl = document.getElementById('opponentClock');
 const selfClockEl = document.getElementById('selfClock');
 const opponentBanner = document.getElementById('opponentBanner');
@@ -1279,6 +1447,23 @@ function logLine(text, cls, speech) {
 }
 function logTurnHeader(who, speech) { logLine(who, 'turn-header', speech); }
 function clearLog() { logEl.innerHTML = ''; }
+
+// Public turn-start announcement heard by BOTH players (and spectators).
+// In live Kriegspiel the referee calls out "<Color> to move. <N> pawn tries."
+// to the whole room each turn. Third-person wording is used so the same
+// line is correct for the mover, their opponent, and any spectators.
+function announcePublicTurnStart(turnColor, tries) {
+  const who = turnColor === 'w' ? 'White' : 'Black';
+  const triesN = Math.max(0, Number(tries) || 0);
+  const triesPhrase = triesN === 0
+    ? 'No pawn tries.'
+    : `${triesN} pawn ${triesN === 1 ? 'try' : 'tries'}.`;
+  logLine(
+    `<span class="announce">Referee: ${who} to move. ${triesN} pawn ${triesN===1?'try':'tries'}.</span>`,
+    'announce',
+    `${who} to move. ${triesPhrase}`
+  );
+}
 function setStatus(text, type) {
   statusEl.className = 'status ' + (type || '');
   statusEl.innerHTML = text;
@@ -1761,24 +1946,41 @@ function attemptHumanMoveAi(desired, me) {
 function doAiTurn() {
   if (!gameActive) return;
   const turnStart = performance.now();
+  const deadline = turnStart + AI_MAX_THINK_MS;
   const commitAndRender = (result, move) => {
     finishAiTurn(turnStart, () => submitAiMoveResult(result, move));
   };
-  let attempts = 0;
-  const tryOne = () => {
-    if (attempts++ > 150) {
-      const truly = legalMoves(referee.state, aiColor);
-      if (truly.length === 0) return;
-      const pick = truly[Math.floor(Math.random() * truly.length)];
-      const result = referee.attemptMove(aiColor, pick);
-      if (result.ok) commitAndRender(result, pick);
+
+  // Ground-truth fallback: pick a legal move the referee is guaranteed to
+  // accept. Also handles the degenerate no-legal-moves case (shouldn't happen
+  // in normal play — the referee would have ended the game — but we must
+  // never leave the UI hanging on "Computer is thinking...").
+  const fallbackToTruth = (reason) => {
+    const truly = legalMoves(referee.state, aiColor);
+    if (truly.length === 0) {
+      console.warn('AI has no legal moves; ending game defensively.', reason);
+      const endResult = inCheck(referee.state, aiColor)
+        ? { type: 'checkmate', winner: humanColor }
+        : { type: 'stalemate' };
+      endAiGame(endResult);
       return;
     }
-    const chosen = ai.pickMove() || (() => {
-      const truly = legalMoves(referee.state, aiColor);
-      return truly.length ? truly[Math.floor(Math.random() * truly.length)] : null;
-    })();
-    if (!chosen) return;
+    const pick = truly[Math.floor(Math.random() * truly.length)];
+    const result = referee.attemptMove(aiColor, pick);
+    if (result.ok) { commitAndRender(result, pick); return; }
+    // A ground-truth legal move that the referee rejected would be an engine
+    // bug — log it and give up gracefully rather than looping.
+    console.error('Ground-truth legal move rejected by referee:', pick, reason);
+    endAiGame({ type: 'stalemate' });
+  };
+
+  let attempts = 0;
+  const tryOne = () => {
+    if (!gameActive) return;
+    if (performance.now() > deadline) { fallbackToTruth('deadline'); return; }
+    if (attempts++ > 150)              { fallbackToTruth('attempts'); return; }
+    const chosen = ai.pickMove();
+    if (!chosen) { fallbackToTruth('pickMove-exhausted'); return; }
     const result = referee.attemptMove(aiColor, chosen);
     if (result.ok) { commitAndRender(result, chosen); return; }
     ai.registerReject(chosen);
@@ -2026,14 +2228,11 @@ function onStarted(msg) {
   );
   applyPlayerSnapshot(msg.snapshot, { isStart: true });
   startClockTicker();
-  // If I'm White I move first — announce it so speech kicks in immediately.
-  if (myColor === 'w' && !online.gameOver) {
-    const tries = online.pawnTries || 0;
-    logLine(
-      `<span class="announce">Referee: White to move. You have ${tries} pawn ${tries===1?'try':'tries'}.</span>`,
-      'announce',
-      `Your turn. ${tries===0 ? 'No pawn tries.' : `${tries} pawn ${tries===1?'try':'tries'}.`}`
-    );
+  // The referee announces the opening turn publicly so BOTH players hear
+  // "White to move. N pawn tries." — matching live Kriegspiel.
+  if (!online.gameOver) {
+    const startTurn = (msg.snapshot && msg.snapshot.turn) || 'w';
+    announcePublicTurnStart(startTurn, online.pawnTriesOfMover || 0);
   }
 }
 
@@ -2056,6 +2255,7 @@ function applyPlayerSnapshot(snap, flags) {
   online.clockRunning = !!snap.clockRunning;
   online.clockSyncAt = Date.now();
   online.pawnTries = snap.pawnTries || 0;
+  online.pawnTriesOfMover = snap.pawnTriesOfMover || 0;
   online.pawnAttemptsThisTurn = snap.pawnAttemptsThisTurn || 0;
   online.inCheckDirections = snap.inCheckDirections || null;
   online.opponentPresent = !!snap.bothConnected;
@@ -2119,6 +2319,7 @@ function onMoveAccepted(msg) {
   online.clockTurn = msg.turn; online.clockRunning = !!msg.clockRunning;
   online.clockSyncAt = Date.now();
   online.pawnAttemptsThisTurn = 0;
+  online.pawnTriesOfMover = msg.pawnTriesOfMover || 0;
   online.gameOver = !!msg.gameOver;
   online.result = msg.result || null;
   online.finalBoard = msg.finalBoard || null;
@@ -2135,6 +2336,9 @@ function onMoveAccepted(msg) {
   } else {
     updatePawnTriesUi();
     updateTurnStatus();
+    // Public turn-start announcement. The mover hears it too, identical to
+    // what their opponent hears, matching a live referee's call.
+    announcePublicTurnStart(msg.turn, online.pawnTriesOfMover);
   }
 }
 function onMoveRejected(msg) {
@@ -2176,22 +2380,17 @@ function onOpponentMoved(msg) {
   human.opponentSilentMove();
   logLine('<span class="announce">Referee: opponent has moved.</span>', 'announce');
   applyAnnouncementsToView(msg.announcements, false);
-  // Referee announces the new turn + pawn tries so online players get the
-  // same spoken prompt AI-mode players do.
-  if (!msg.gameOver) {
-    const tries = msg.pawnTries || 0;
-    const youWho = myColor === 'w' ? 'White' : 'Black';
-    logLine(
-      `<span class="announce">Referee: ${youWho} to move. You have ${tries} pawn ${tries===1?'try':'tries'}.</span>`,
-      'announce',
-      `Your turn. ${tries===0 ? 'No pawn tries.' : `${tries} pawn ${tries===1?'try':'tries'}.`}`
-    );
-  }
   online.whiteMs = msg.whiteMs; online.blackMs = msg.blackMs;
   online.clockTurn = msg.turn; online.clockRunning = !!msg.clockRunning;
   online.clockSyncAt = Date.now();
   online.pawnTries = msg.pawnTries || 0;
+  online.pawnTriesOfMover = msg.pawnTriesOfMover || 0;
   online.pawnAttemptsThisTurn = msg.pawnAttemptsThisTurn || 0;
+  // Public turn-start announcement heard on BOTH sides (same wording as the
+  // mover hears via moveAccepted), so the referee speaks once to the room.
+  if (!msg.gameOver) {
+    announcePublicTurnStart(msg.turn, online.pawnTriesOfMover);
+  }
   online.gameOver = !!msg.gameOver;
   online.result = msg.result || null;
   online.finalBoard = msg.finalBoard || null;
@@ -2326,26 +2525,39 @@ function applyGameOverUI(r, myC, oppC, opts) {
   if (!r) return;
   let title = 'Game Over';
   let text = '';
+  let iWon = false;
   if (r.type === 'checkmate') {
     const winner = r.winner === 'w' ? 'White' : 'Black';
     text = `Checkmate. ${winner} wins.`;
-    if (!opts.spectator) title = r.winner === myC ? 'Victory' : 'Defeat';
+    if (!opts.spectator) {
+      iWon = r.winner === myC;
+      title = iWon ? 'Victory' : 'Defeat';
+    }
   } else if (r.type === 'stalemate') {
     title = 'Draw'; text = 'Stalemate.';
   } else if (r.type === 'resign') {
     const winner = r.winner === 'w' ? 'White' : 'Black';
-    if (!opts.spectator) title = r.winner === myC ? 'Victory' : 'Defeat';
+    if (!opts.spectator) {
+      iWon = r.winner === myC;
+      title = iWon ? 'Victory' : 'Defeat';
+    }
     text = `${r.winner === 'w' ? 'Black' : 'White'} resigned. ${winner} wins.`;
   } else if (r.type === 'time') {
     const winner = r.winner === 'w' ? 'White' : 'Black';
-    if (!opts.spectator) title = r.winner === myC ? 'Victory' : 'Defeat';
+    if (!opts.spectator) {
+      iWon = r.winner === myC;
+      title = iWon ? 'Victory' : 'Defeat';
+    }
     text = `${r.winner === 'w' ? 'Black' : 'White'} ran out of time. ${winner} wins.`;
   }
   setStatus(`<b>${text}</b>`, 'gameover');
   logLine(`<b class="check">${text}</b>`, 'check', text);
   gameOverTitle.textContent = title;
   gameOverText.textContent = text;
+  // Victory class drives the title pulse animation.
+  if (gameOverModalInner) gameOverModalInner.classList.toggle('victory', iWon);
   gameOverModal.classList.add('show');
+  if (iWon) celebrateVictory();
 }
 function showGameOverModal(r, myC, oppC) {
   applyGameOverUI(r, myC, oppC, { spectator: false });

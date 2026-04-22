@@ -185,6 +185,11 @@ class Room {
       whiteMs, blackMs,
       clockRunning: this.clockRunning,
       pawnTries: myTurn ? this.referee.pawnTries(color) : 0,
+      // Public to both sides: the current mover's pawn-try count. Classic
+      // Kriegspiel referees announce this to the room each turn.
+      pawnTriesOfMover: this.gameOver
+        ? 0
+        : this.referee.pawnTries(this.referee.state.turn),
       pawnAttemptsThisTurn: this.referee.pawnAttemptsThisTurn,
       inCheckDirections: checkDirections,
       tc: this.tc,
@@ -208,6 +213,9 @@ class Room {
       lastMoveByBlack: this.lastMoveByBlack,
       capturedByWhite: this.capturedByWhite,
       capturedByBlack: this.capturedByBlack,
+      pawnTriesOfMover: this.gameOver
+        ? 0
+        : this.referee.pawnTries(this.referee.state.turn),
       tc: this.tc,
       bothConnected: this.bothConnected()
     };
@@ -418,12 +426,20 @@ function handleMove(ws, msg) {
   const oppColor = meta.color === 'w' ? 'b' : 'w';
   const oppSlot = room.players[oppColor];
 
+  // Kriegspiel-public: the new mover's pawn-try count is announced to
+  // everyone in the room (both players + spectators), matching how a live
+  // referee calls it out each turn.
+  const pawnTriesOfMover = ended
+    ? 0
+    : room.referee.pawnTries(room.referee.state.turn);
+
   send(ws, {
     type: 'moveAccepted',
     move: result.move,
     announcements: result.announcements,
     ...clockInfo,
     pawnAttemptsThisTurn: 0,
+    pawnTriesOfMover,
     gameOver: ended,
     result: ended ? result.result : null,
     finalBoard: ended ? room.referee.state.board : null
@@ -437,6 +453,7 @@ function handleMove(ws, msg) {
       announcements: result.announcements,
       ...clockInfo,
       pawnTries: ended ? 0 : room.referee.pawnTries(oppColor),
+      pawnTriesOfMover,
       pawnAttemptsThisTurn: room.referee.pawnAttemptsThisTurn,
       gameOver: ended,
       result: ended ? result.result : null,
@@ -456,6 +473,7 @@ function handleMove(ws, msg) {
       ...clockInfo,
       capturedByWhite: room.capturedByWhite,
       capturedByBlack: room.capturedByBlack,
+      pawnTriesOfMover,
       gameOver: ended,
       result: ended ? result.result : null
     });
