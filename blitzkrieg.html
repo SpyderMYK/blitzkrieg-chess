@@ -130,6 +130,8 @@
     0% { background-color: #ffcc00 !important; }
     100% { }
   }
+  /* Persistent tint on the square where your piece was taken — stays until your next move */
+  .sq.capturesq { background-color: rgba(204, 100, 100, 0.45) !important; }
   .piece { pointer-events: none; }
   .piece.white { color: #fff; text-shadow: 0 0 2px #000, 0 0 3px #000, 1px 1px 1px #000; }
   .piece.black { color: #111; text-shadow: 0 0 2px #fff, 0 0 3px #888; }
@@ -1337,7 +1339,7 @@ function renderBoard() {
     const r = parseInt(sq.dataset.r, 10);
     const c = parseInt(sq.dataset.c, 10);
     sq.innerHTML = '';
-    sq.classList.remove('selected','target','lastmove','check','capturereveal','revealed','dummy-from','dummy-target');
+    sq.classList.remove('selected','target','lastmove','check','capturereveal','capturesq','revealed','dummy-from','dummy-target');
     const piece = board[r][c];
     if (piece) {
       const span = document.createElement('span');
@@ -1379,7 +1381,8 @@ function renderBoard() {
   }
   if (human && human.lastEnemyCaptureSquare) {
     const {r,c} = human.lastEnemyCaptureSquare;
-    highlightSq(r, c, 'capturereveal');
+    highlightSq(r, c, 'capturereveal'); // brief flash on first render
+    highlightSq(r, c, 'capturesq');     // persistent tint for the whole turn
   }
 
   // Selection + candidate targets (input modes only)
@@ -1533,13 +1536,11 @@ function clearLog() { logEl.innerHTML = ''; }
 function announcePublicTurnStart(turnColor, tries) {
   const who = turnColor === 'w' ? 'White' : 'Black';
   const triesN = Math.max(0, Number(tries) || 0);
-  const triesPhrase = triesN === 0
-    ? 'No pawn tries.'
-    : `${triesN} pawn ${triesN === 1 ? 'try' : 'tries'}.`;
+  const triesPhrase = triesN > 0 ? ` ${triesN} pawn ${triesN === 1 ? 'try' : 'tries'}.` : '';
   logLine(
     `<span class="announce">Referee: ${who} to move. ${triesN} pawn ${triesN===1?'try':'tries'}.</span>`,
     'announce',
-    `${who} to move. ${triesPhrase}`
+    `${who}.${triesPhrase}`
   );
 }
 function setStatus(text, type) {
@@ -2092,7 +2093,7 @@ function beginAiTurn() {
     logLine(
       `<span class="announce">Referee: ${who} to move. ${who} has ${tries} pawn ${tries===1?'try':'tries'}.</span>`,
       'announce',
-      `${who} to move. ${tries===0 ? 'No pawn tries.' : `${tries} pawn ${tries===1?'try':'tries'}.`}`
+      tries > 0 ? `${who}. ${tries} pawn ${tries===1?'try':'tries'}.` : `${who}.`
     );
     updatePawnTriesUi();
     setStatus('Your move. Click a piece and a target, or type a move.', 'turn');
@@ -2103,7 +2104,7 @@ function beginAiTurn() {
     logLine(
       `<span class="announce">Referee: ${who} to move. ${who} has ${tries} pawn ${tries===1?'try':'tries'}.</span>`,
       'announce',
-      `${who} to move. ${tries===0 ? 'No pawn tries.' : `${tries} pawn ${tries===1?'try':'tries'}.`}`
+      tries > 0 ? `${who}. ${tries} pawn ${tries===1?'try':'tries'}.` : `${who}.`
     );
     pawnTriesEl.textContent = 'opponent\u2019s turn';
     pawnTriesEl.className = 'pawn-tries none';
