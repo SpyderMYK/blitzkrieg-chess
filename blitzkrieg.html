@@ -136,6 +136,51 @@
   .piece.revealed { opacity: 0.78; filter: drop-shadow(0 0 4px #ffcc66); }
   .piece.ghost { opacity: 0.28; }
 
+  /* Dummy (tracker) pieces — semi-transparent blue-tinted overlay */
+  .piece.dummy-piece { opacity: 0.42; filter: drop-shadow(0 0 3px rgba(86,180,233,0.85)); pointer-events: none; }
+  .piece.dummy-piece.dummy-selected { opacity: 0.75; filter: drop-shadow(0 0 6px rgba(86,180,233,1.0)); }
+  .sq.dummy-from { outline: 2px dashed #56b4e9; outline-offset: -2px; }
+  .sq.dummy-target { box-shadow: inset 0 0 0 3px rgba(86,180,233,0.55); }
+
+  /* Off-board tray for dummy pieces the player has "captured" */
+  .dummy-tray {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-height: 34px;
+    background: #252525;
+    border: 1px dashed #4a7a9a;
+    border-radius: 4px;
+    padding: 4px 8px;
+    margin-top: 4px;
+    align-items: center;
+    width: 100%;
+    max-width: 560px;
+  }
+  .dummy-tray-label {
+    font-size: 11px;
+    color: #56b4e9;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-right: 4px;
+    opacity: 0.7;
+  }
+  .dummy-tray-piece {
+    font-size: calc(var(--sq) * 0.6);
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.45;
+    filter: drop-shadow(0 0 3px rgba(86,180,233,0.7));
+    transition: opacity 0.12s;
+  }
+  .dummy-tray-piece:hover { opacity: 0.7; }
+  .dummy-tray-piece.dummy-selected { opacity: 0.85; filter: drop-shadow(0 0 6px rgba(86,180,233,1.0)); }
+  .dummy-tray-piece.white { color: #fff; text-shadow: 0 0 2px #000, 0 0 3px #000; }
+  .dummy-tray-piece.black { color: #222; text-shadow: 0 0 2px #fff, 0 0 3px #888; }
+
+  /* Toggle button active state */
+  button.dummy-toggle.active { background: #2a5a8a; border-color: #56b4e9; color: #9dd2ff; }
+
   .coord {
     font-size: 11px;
     color: #888;
@@ -672,6 +717,7 @@
       <button id="newGameBtn">Leave Game</button>
       <button id="resignBtn">Resign</button>
       <button id="shareGameBtn" style="display:none;">Share Link</button>
+      <button id="dummyToggleBtn" class="dummy-toggle" style="display:none;" title="Track where you think opponent pieces are — right-click a dummy to send it off the board">Track Pieces</button>
       <label class="sound-toggle">
         <input type="checkbox" id="soundToggle" checked />
         Sound
@@ -697,6 +743,11 @@
     <div class="captured-row theirs" id="capturedByMe" title="Enemy pieces you've captured (count only, not identities)"><span class="label">You took</span></div>
     <div class="board" id="board"></div>
     <div class="captured-row mine" id="capturedByThem" title="Your pieces the opponent captured"><span class="label">Lost</span></div>
+
+    <!-- Dummy piece tray — shows opponent pieces moved off the board -->
+    <div class="dummy-tray" id="dummyTray" style="display:none;" title="Opponent pieces you've marked as captured — click to place back on board, right-click to discard">
+      <span class="dummy-tray-label">Off board</span>
+    </div>
 
     <!-- Your info + clock -->
     <div class="clocks-outer">
@@ -1042,6 +1093,12 @@ let selectedSq = null;
 let gameActive = false;
 let pendingPromo = null;
 
+// Dummy-piece tracker state
+let dummyPieces = null;   // 8×8 array of dummy pieces (null = empty)
+let dummyTray = [];       // pieces moved off the board
+let selectedDummy = null; // {source:'board',r,c} | {source:'tray',idx}
+let dummyModeActive = false;
+
 // Online-player state
 let ws = null;
 let myCode = null;
@@ -1136,6 +1193,7 @@ function hideAllLobbyPanels() {
 function showLobby() {
   mode = 'lobby';
   stopClockTicker();
+  resetDummyPieces();
   gameRoot.style.display = 'none';
   lobbyEl.style.display = 'flex';
   hideAllLobbyPanels();
@@ -1237,6 +1295,7 @@ function buildBoard() {
       sq.dataset.r = r;
       sq.dataset.c = c;
       sq.addEventListener('click', onSquareClick);
+      sq.addEventListener('contextmenu', onSquareContextMenu);
       boardEl.appendChild(sq);
     }
   }
@@ -1278,7 +1337,7 @@ function renderBoard() {
     const r = parseInt(sq.dataset.r, 10);
     const c = parseInt(sq.dataset.c, 10);
     sq.innerHTML = '';
-    sq.classList.remove('selected','target','lastmove','check','capturereveal','revealed');
+    sq.classList.remove('selected','target','lastmove','check','capturereveal','revealed','dummy-from','dummy-target');
     const piece = board[r][c];
     if (piece) {
       const span = document.createElement('span');
@@ -1289,6 +1348,25 @@ function renderBoard() {
       sq.appendChild(span);
     }
   });
+
+  // Overlay dummy (tracker) pieces
+  if (dummyPieces) {
+    squares.forEach(sq => {
+      const r = parseInt(sq.dataset.r, 10);
+      const c = parseInt(sq.dataset.c, 10);
+      const dp = dummyPieces[r][c];
+      if (dp) {
+        const span = document.createElement('span');
+        const isSelected = selectedDummy && selectedDummy.source === 'board' && selectedDummy.r === r && selectedDummy.c === c;
+        span.className = 'piece dummy-piece ' + (colorOf(dp) === 'w' ? 'white' : 'black');
+        if (isSelected) { span.classList.add('dummy-selected'); sq.classList.add('dummy-from'); }
+        span.textContent = GLYPHS[dp];
+        sq.appendChild(span);
+      }
+      // Highlight valid drop target when a dummy is selected
+      if (dummyModeActive && selectedDummy) sq.classList.add('dummy-target');
+    });
+  }
 
   // Last-move highlights
   if (mode === 'online-spectator') {
@@ -1555,6 +1633,110 @@ function renderClocks() {
 }
 
 // ====================================================================
+// DUMMY PIECE TRACKER
+// Semi-transparent "ghost" pieces overlaid on the board that the player
+// can drag around freely to track their mental model of the opponent's
+// position. No effect on the actual game.
+// ====================================================================
+function initDummyPieces(myColor) {
+  dummyPieces = emptyBoard();
+  dummyTray = [];
+  selectedDummy = null;
+  dummyModeActive = false;
+  const dummyToggleBtn = document.getElementById('dummyToggleBtn');
+  if (dummyToggleBtn) {
+    dummyToggleBtn.classList.remove('active');
+    dummyToggleBtn.textContent = 'Track Pieces';
+    dummyToggleBtn.style.display = '';
+  }
+  const oppColor = myColor === 'w' ? 'b' : 'w';
+  const initial = initialPosition();
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const p = initial[r][c];
+      if (p && colorOf(p) === oppColor) dummyPieces[r][c] = p;
+    }
+  }
+  renderDummyTray();
+}
+
+function resetDummyPieces() {
+  dummyPieces = null;
+  dummyTray = [];
+  selectedDummy = null;
+  dummyModeActive = false;
+  const dummyToggleBtn = document.getElementById('dummyToggleBtn');
+  if (dummyToggleBtn) {
+    dummyToggleBtn.classList.remove('active');
+    dummyToggleBtn.style.display = 'none';
+  }
+  const tray = document.getElementById('dummyTray');
+  if (tray) tray.style.display = 'none';
+}
+
+function renderDummyTray() {
+  const el = document.getElementById('dummyTray');
+  if (!el) return;
+  el.innerHTML = '<span class="dummy-tray-label">Off board ↓</span>';
+  dummyTray.forEach((piece, idx) => {
+    const span = document.createElement('span');
+    span.className = 'dummy-tray-piece ' + (colorOf(piece) === 'w' ? 'white' : 'black');
+    if (selectedDummy && selectedDummy.source === 'tray' && selectedDummy.idx === idx) {
+      span.classList.add('dummy-selected');
+    }
+    span.textContent = GLYPHS[piece];
+    span.title = 'Click to place back on board · Right-click to remove permanently';
+    span.addEventListener('click', () => {
+      if (selectedDummy && selectedDummy.source === 'tray' && selectedDummy.idx === idx) {
+        selectedDummy = null; // deselect
+      } else {
+        selectedDummy = { source: 'tray', idx };
+      }
+      renderBoard();
+      renderDummyTray();
+    });
+    span.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      dummyTray.splice(idx, 1);
+      if (selectedDummy && selectedDummy.source === 'tray') selectedDummy = null;
+      renderBoard();
+      renderDummyTray();
+    });
+    el.appendChild(span);
+  });
+  el.style.display = (dummyModeActive || dummyTray.length > 0) ? '' : 'none';
+}
+
+// Right-click a board square in dummy mode → send dummy piece to tray
+function onSquareContextMenu(e) {
+  if (!dummyModeActive || !dummyPieces) return;
+  e.preventDefault();
+  const r = parseInt(e.currentTarget.dataset.r, 10);
+  const c = parseInt(e.currentTarget.dataset.c, 10);
+  if (dummyPieces[r][c]) {
+    dummyTray.push(dummyPieces[r][c]);
+    dummyPieces[r][c] = null;
+    if (selectedDummy && selectedDummy.source === 'board' && selectedDummy.r === r && selectedDummy.c === c) {
+      selectedDummy = null;
+    }
+    renderBoard();
+    renderDummyTray();
+  }
+}
+
+// Toggle button handler (wired once at startup)
+document.getElementById('dummyToggleBtn').addEventListener('click', () => {
+  if (!dummyPieces) return;
+  dummyModeActive = !dummyModeActive;
+  const btn = document.getElementById('dummyToggleBtn');
+  btn.classList.toggle('active', dummyModeActive);
+  btn.textContent = dummyModeActive ? '👁 Tracking ON' : 'Track Pieces';
+  if (!dummyModeActive) selectedDummy = null;
+  renderBoard();
+  renderDummyTray();
+});
+
+// ====================================================================
 // MOVE NOTATION — shared parsing/formatting
 // ====================================================================
 function parseMoveInput(text, me) {
@@ -1760,6 +1942,42 @@ function setPawnTriesDisplay(tries, used) {
 // CLICK / SELECT HANDLING (shared for AI & online-player)
 // ====================================================================
 function onSquareClick(e) {
+  // Dummy mode: handle before any real-game logic, available any time
+  if (dummyModeActive && dummyPieces && mode !== 'online-spectator') {
+    const r = parseInt(e.currentTarget.dataset.r, 10);
+    const c = parseInt(e.currentTarget.dataset.c, 10);
+    if (selectedDummy) {
+      if (selectedDummy.source === 'board') {
+        if (selectedDummy.r === r && selectedDummy.c === c) {
+          // Deselect on same square
+          selectedDummy = null;
+        } else {
+          // Move dummy; if target occupied, bump displaced dummy to tray
+          if (dummyPieces[r][c]) dummyTray.push(dummyPieces[r][c]);
+          dummyPieces[r][c] = dummyPieces[selectedDummy.r][selectedDummy.c];
+          dummyPieces[selectedDummy.r][selectedDummy.c] = null;
+          selectedDummy = null;
+        }
+      } else if (selectedDummy.source === 'tray') {
+        // Place from tray onto board; bump displaced dummy to tray
+        if (dummyPieces[r][c]) dummyTray.push(dummyPieces[r][c]);
+        dummyPieces[r][c] = dummyTray[selectedDummy.idx];
+        dummyTray.splice(selectedDummy.idx, 1);
+        selectedDummy = null;
+      }
+      renderBoard();
+      renderDummyTray();
+      return;
+    }
+    // Nothing selected — try to select a dummy on this square
+    if (dummyPieces[r][c]) {
+      selectedDummy = { source: 'board', r, c };
+      renderBoard();
+      return;
+    }
+    return; // click on empty square with no selection does nothing
+  }
+
   if (mode === 'online-spectator') return;
   if (!gameActive) return;
   const me = myColorOfRenderer();
@@ -1857,6 +2075,7 @@ function startAiGame() {
   connectionBanner.classList.remove('show');
   clearLog();
   logLine('New game begun. You play <b>' + (humanColor === 'w' ? 'White' : 'Black') + '</b>.', 'system');
+  initDummyPieces(humanColor);
   buildBoard();
   renderBoard();
   renderCapturedRows();
@@ -2192,6 +2411,7 @@ function onResumed(msg) {
   aiColor = myColor === 'w' ? 'b' : 'w';
   boardOrientation = myColor;
   setUrlHash(myCode);
+  initDummyPieces(myColor);
   applyPlayerSnapshot(msg.snapshot, { isStart: false, isResume: true });
   startClockTicker();
 }
@@ -2226,6 +2446,7 @@ function onStarted(msg) {
     'system',
     `Game on. You play ${youColorName}.`
   );
+  initDummyPieces(myColor);
   applyPlayerSnapshot(msg.snapshot, { isStart: true });
   startClockTicker();
   // The referee announces the opening turn publicly so BOTH players hear
