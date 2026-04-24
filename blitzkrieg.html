@@ -721,6 +721,10 @@
       <button id="shareGameBtn" style="display:none;">Share Link</button>
       <button id="dummyToggleBtn" class="dummy-toggle" style="display:none;" title="Track where you think opponent pieces are — right-click a dummy to send it off the board">Track Pieces</button>
       <label class="sound-toggle">
+        <input type="checkbox" id="ghostToggle" checked />
+        Ghost
+      </label>
+      <label class="sound-toggle">
         <input type="checkbox" id="soundToggle" checked />
         Sound
       </label>
@@ -869,6 +873,10 @@ function audioCtx() {
   }
   if (_audioCtx && _audioCtx.state === 'suspended') _audioCtx.resume();
   return _audioCtx;
+}
+function ghostEnabled() {
+  const el = document.getElementById('ghostToggle');
+  return el ? el.checked : true;
 }
 function soundEnabled() {
   const el = document.getElementById('soundToggle');
@@ -1352,7 +1360,7 @@ function renderBoard() {
   });
 
   // Overlay dummy (tracker) pieces
-  if (dummyPieces) {
+  if (dummyPieces && ghostEnabled()) {
     squares.forEach(sq => {
       const r = parseInt(sq.dataset.r, 10);
       const c = parseInt(sq.dataset.c, 10);
@@ -1648,7 +1656,7 @@ function initDummyPieces(myColor) {
   if (dummyToggleBtn) {
     dummyToggleBtn.classList.remove('active');
     dummyToggleBtn.textContent = 'Track Pieces';
-    dummyToggleBtn.style.display = '';
+    dummyToggleBtn.style.display = ghostEnabled() ? '' : 'none';
   }
   const oppColor = myColor === 'w' ? 'b' : 'w';
   const initial = initialPosition();
@@ -1705,7 +1713,7 @@ function renderDummyTray() {
     });
     el.appendChild(span);
   });
-  el.style.display = (dummyModeActive || dummyTray.length > 0) ? '' : 'none';
+  el.style.display = (ghostEnabled() && (dummyModeActive || dummyTray.length > 0)) ? '' : 'none';
 }
 
 // Right-click a board square in dummy mode → send dummy piece to tray
@@ -2757,6 +2765,8 @@ function applyGameOverUI(r, myC, oppC, opts) {
     }
   } else if (r.type === 'stalemate') {
     title = 'Draw'; text = 'Stalemate.';
+  } else if (r.type === 'draw') {
+    title = 'Draw'; text = r.reason === 'only-kings' ? 'Draw — only kings remain.' : 'Draw.';
   } else if (r.type === 'resign') {
     const winner = r.winner === 'w' ? 'White' : 'Black';
     if (!opts.spectator) {
@@ -2860,6 +2870,12 @@ shareGameBtn.addEventListener('click', () => {
   const link = location.origin + location.pathname + '#' + myCode;
   try { navigator.clipboard.writeText(link); alert('Link copied:\n' + link); }
   catch(e) { prompt('Share this link:', link); }
+});
+document.getElementById('ghostToggle').addEventListener('change', function () {
+  const btn = document.getElementById('dummyToggleBtn');
+  if (btn) btn.style.display = (this.checked && dummyPieces) ? '' : 'none';
+  renderBoard();
+  renderDummyTray();
 });
 
 // ====================================================================

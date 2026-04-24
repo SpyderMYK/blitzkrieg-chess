@@ -381,6 +381,13 @@
   // ------------------------------------------------------------------
   const MAX_PAWN_ATTEMPTS = 3;
 
+  function onlyKingsLeft(board) {
+    for (let r = 0; r < 8; r++)
+      for (let c = 0; c < 8; c++)
+        if (board[r][c] && kindOf(board[r][c]) !== 'K') return false;
+    return true;
+  }
+
   class Referee {
     constructor() {
       this.state = initialState();
@@ -474,6 +481,14 @@
           this.result = { type: 'stalemate' };
           announcements.push({ kind: 'end', text: 'Stalemate. Draw.' });
         }
+      }
+
+      // Kings-only draw: if both sides have only a king left the position is
+      // dead — neither can checkmate the other by any legal sequence.
+      if (!this.gameOver && onlyKingsLeft(this.state.board)) {
+        this.gameOver = true;
+        this.result = { type: 'draw', reason: 'only-kings' };
+        announcements.push({ kind: 'end', text: 'Draw — only kings remain.' });
       }
 
       return { ok: true, announcements, move: matched, captured, result: this.result };
