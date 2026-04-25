@@ -183,6 +183,32 @@
   /* Toggle button active state */
   button.dummy-toggle.active { background: #2a5a8a; border-color: #56b4e9; color: #9dd2ff; }
 
+  /* Replay controls bar */
+  .replay-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 6px 0;
+    padding: 6px 12px;
+    background: #1e3a2e;
+    border: 1px solid #3a7a5a;
+    border-radius: 4px;
+    width: 100%;
+    max-width: 560px;
+    justify-content: center;
+  }
+  .replay-counter {
+    font-size: 13px;
+    color: #aad4bb;
+    min-width: 90px;
+    text-align: center;
+  }
+  button.replay-exit {
+    background: #555;
+    border-color: #888;
+    margin-left: 8px;
+  }
+
   .coord {
     font-size: 11px;
     color: #888;
@@ -750,6 +776,14 @@
     <div class="board" id="board"></div>
     <div class="captured-row mine" id="capturedByThem" title="Your pieces the opponent captured"><span class="label">Lost</span></div>
 
+    <!-- Replay controls — shown only during game review -->
+    <div class="replay-controls" id="replayControls" style="display:none;">
+      <button id="replayPrevBtn">&#8592; Prev</button>
+      <span class="replay-counter" id="replayCounter">Move 0/0</span>
+      <button id="replayNextBtn">Next &#8594;</button>
+      <button class="replay-exit" id="replayExitBtn">&#x2715; Exit Review</button>
+    </div>
+
     <!-- Dummy piece tray — shows opponent pieces moved off the board -->
     <div class="dummy-tray" id="dummyTray" style="display:none;" title="Opponent pieces you've marked as captured — click to place back on board, right-click to discard">
       <span class="dummy-tray-label">Off board</span>
@@ -832,7 +866,10 @@
   <div class="modal" id="gameOverModalInner">
     <h2 id="gameOverTitle">Game Over</h2>
     <p id="gameOverText"></p>
-    <button class="primary" onclick="document.getElementById('gameOverModal').classList.remove('show')">Close</button>
+    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+      <button class="primary" onclick="document.getElementById('gameOverModal').classList.remove('show')">Close</button>
+      <button id="reviewGameBtn" style="display:none;" onclick="document.getElementById('gameOverModal').classList.remove('show'); enterReplay();">Review Game</button>
+    </div>
   </div>
 </div>
 
@@ -1109,6 +1146,11 @@ let dummyTray = [];       // pieces moved off the board
 let selectedDummy = null; // {source:'board',r,c} | {source:'tray',idx}
 let dummyModeActive = false;
 
+// Replay state
+let moveHistory = [];     // array of full board snapshots (index 0 = start position)
+let replayMode = false;
+let replayIndex = 0;
+
 // Online-player state
 let ws = null;
 let myCode = null;
@@ -1323,6 +1365,9 @@ function buildBoard() {
 
 function boardToRender() {
   // Decide which board to paint, and whether to reveal the opponent's pieces.
+  if (replayMode) {
+    return { board: moveHistory[replayIndex] || emptyBoard(), reveal: true };
+  }
   if (mode === 'online-spectator') {
     return { board: spectator.board || emptyBoard(), reveal: true };
   }
@@ -1360,7 +1405,7 @@ function renderBoard() {
   });
 
   // Overlay dummy (tracker) pieces
-  if (dummyPieces && ghostEnabled()) {
+  if (dummyPieces && ghostEnabled() && !replayMode) {
     squares.forEach(sq => {
       const r = parseInt(sq.dataset.r, 10);
       const c = parseInt(sq.dataset.c, 10);
@@ -2072,6 +2117,9 @@ function startAiGame() {
   ai = new AIPlayer(aiColor, document.getElementById('aiSelect').value);
   selectedSq = null;
   gameActive = true;
+  moveHistory = [cloneBoard(initialPosition())];
+  replayMode = false;
+  replayIndex = 0;
   // UI
   showGameUi();
   modeLabel.textContent = `vs Computer (${humanColor === 'w' ? 'White' : 'Black'})`;
@@ -2155,6 +2203,7 @@ function attemptHumanMoveAi(desired, me) {
     return;
   }
   human.applyOwnMove(result.move);
+  moveHistory.push(cloneBoard(referee.state.board));
   selectedSq = null;
   applyAnnouncementsToView(result.announcements, true);
   if (!result.result) {
@@ -2222,6 +2271,7 @@ function finishAiTurn(turnStart, fn) {
   setTimeout(fn, wait);
 }
 function submitAiMoveResult(result, chosen) {
+  moveHistory.push(cloneBoard(referee.state.board));
   const mv = result.move;
   ai.view.applyOwnMove(mv);
   for (const a of result.announcements) {
@@ -2788,12 +2838,48 @@ function applyGameOverUI(r, myC, oppC, opts) {
   gameOverText.textContent = text;
   // Victory class drives the title pulse animation.
   if (gameOverModalInner) gameOverModalInner.classList.toggle('victory', iWon);
+  // Show "Review Game" button only in AI mode (we have full history there)
+  const reviewBtn = document.getElementById('reviewGameBtn');
+  if (reviewBtn) reviewBtn.style.display = (mode === 'ai' && moveHistory.length > 1) ? '' : 'none';
   gameOverModal.classList.add('show');
   if (iWon) celebrateVictory();
 }
 function showGameOverModal(r, myC, oppC) {
   applyGameOverUI(r, myC, oppC, { spectator: false });
 }
+
+// ====================================================================
+// REPLAY
+// ====================================================================
+function enterReplay() {
+  replayMode = true;
+  replayIndex = moveHistory.length - 1; // start at final position
+  document.getElementById('replayControls').style.display = '';
+  document.getElementById('gameControls').style.display = 'none';
+  updateReplayCounter();
+  renderBoard();
+}
+function exitReplay() {
+  replayMode = false;
+  document.getElementById('replayControls').style.display = 'none';
+  document.getElementById('gameControls').style.display = '';
+  renderBoard();
+}
+function updateReplayCounter() {
+  const total = moveHistory.length - 1; // number of moves
+  const moveNum = replayIndex;           // 0 = start, total = last move
+  document.getElementById('replayCounter').textContent =
+    moveNum === 0 ? 'Start' : `Move ${moveNum}/${total}`;
+  document.getElementById('replayPrevBtn').disabled = replayIndex === 0;
+  document.getElementById('replayNextBtn').disabled = replayIndex === moveHistory.length - 1;
+}
+document.getElementById('replayPrevBtn').addEventListener('click', () => {
+  if (replayIndex > 0) { replayIndex--; updateReplayCounter(); renderBoard(); }
+});
+document.getElementById('replayNextBtn').addEventListener('click', () => {
+  if (replayIndex < moveHistory.length - 1) { replayIndex++; updateReplayCounter(); renderBoard(); }
+});
+document.getElementById('replayExitBtn').addEventListener('click', exitReplay);
 
 // ====================================================================
 // EVENT WIRING
