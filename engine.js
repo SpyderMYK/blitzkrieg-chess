@@ -774,7 +774,16 @@
         let depth, useQ, jitter;
         if (this.strength === 'easy')       { depth = 1; useQ = false; jitter = 150; }
         else if (this.strength === 'normal'){ depth = 2; useQ = false; jitter = 20;  }
-        else                                 { depth = 3; useQ = true;  jitter = 4;   }
+        else {
+          // Hard mode: go deeper when the board is sparse (≤8 pieces total),
+          // since the tree stays manageable even at depth 5.
+          const totalPieces = searchState.board.reduce(
+            (n, row) => n + row.filter(Boolean).length, 0
+          );
+          depth = totalPieces <= 8 ? 5 : 3;
+          useQ = true;
+          jitter = 4;
+        }
         // Main ranked moves first, then pawn probes toward unknown squares
         this.rankedMoves = [
           ...searchAndRank(searchState, depth, useQ, jitter),
@@ -827,6 +836,110 @@
         this.guess[r][c] = enemyPlaceholder;
       }
     }
+    // Called at the start of the AI's turn with the referee's actual pawn-try
+    // count.  If the true count exceeds what our guess board predicts, there
+    // must be enemy pieces hiding on pawn-diagonal squares we haven't modeled
+    // yet — fill them in so the search takes them into account.
+    applyPawnTryHint(actualCount) {
+      const guessState = this.buildGuessState();
+      const predictedTries = legalMoves(guessState, this.color)
+        .filter(m => m.piece === 'P' && m.capture).length;
+      if (actualCount <= predictedTries) return; // nothing new to infer
+
+      const dir      = this.color === 'w' ? -1 : 1;
+      const pawnChar = this.color === 'w' ? 'P' : 'p';
+      const enemyChar = this.color === 'w' ? 'p' : 'P';
+
+      // Collect pawn-diagonal squares that are completely unknown in our model.
+      const candidates = [];
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          if (this.view.ownBoard[r][c] !== pawnChar) continue;
+          for (const dc of [-1, 1]) {
+            const nr = r + dir, nc = c + dc;
+            if (!onBoard(nr, nc)) continue;
+            if (this.view.ownBoard[nr][nc]) continue; // own piece blocks
+            if (this.guess[nr][nc])         continue; // already modeled
+            candidates.push({ r: nr, c: nc });
+          }
+        }
+      }
+      const needed = actualCount - predictedTries;
+      for (let i = 0; i < Math.min(needed, candidates.length); i++) {
+        this.guess[candidates[i].r][candidates[i].c] = enemyChar;
+      }
+      this.rankedMoves = null;
+    }
+
+    // Called after the opponent's move puts our king in check.  The referee
+    // announces the direction(s); we walk those rays from our king and, if
+    // there is no enemy piece already guessed there, plant one so the search
+    // knows to deal with it.
+    applyCheckHint(directions) {
+      const kingChar    = this.color === 'w' ? 'K' : 'k';
+      const enemyColor  = this.color === 'w' ? 'b' : 'w';
+      const enemyKnight = enemyColor === 'w' ? 'N' : 'n';
+      const enemyRook   = enemyColor === 'w' ? 'R' : 'r';
+      const enemyBishop = enemyColor === 'w' ? 'B' : 'b';
+
+      let kr = -1, kc = -1;
+      outer:
+      for (let r = 0; r < 8; r++)
+        for (let c = 0; c < 8; c++)
+          if (this.view.ownBoard[r][c] === kingChar) { kr = r; kc = c; break outer; }
+      if (kr < 0) return;
+
+      let changed = false;
+      for (const dir of directions) {
+        if (dir === 'knight') {
+          const knightOffsets = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+          // If we already have an enemy piece on one of those squares, the
+          // check is already modeled — nothing to do.
+          const alreadyKnown = knightOffsets.some(([dr,dc]) => {
+            const nr = kr+dr, nc = kc+dc;
+            return onBoard(nr,nc) && this.guess[nr][nc]
+              && colorOf(this.guess[nr][nc]) === enemyColor;
+          });
+          if (!alreadyKnown) {
+            for (const [dr,dc] of knightOffsets) {
+              const nr = kr+dr, nc = kc+dc;
+              if (!onBoard(nr,nc)) continue;
+              if (this.view.ownBoard[nr][nc]) continue; // friendly piece there
+              this.guess[nr][nc] = enemyKnight;
+              changed = true;
+              break;
+            }
+          }
+        } else {
+          const rayDirs = dir === 'horizontal' ? [[0,-1],[0,1]]
+                        : dir === 'vertical'   ? [[-1,0],[1,0]]
+                        :                        [[-1,-1],[-1,1],[1,-1],[1,1]];
+          const plant = (dir === 'horizontal' || dir === 'vertical')
+            ? enemyRook : enemyBishop;
+
+          for (const [dr,dc] of rayDirs) {
+            let nr = kr+dr, nc = kc+dc;
+            let foundEnemy = false;
+            while (onBoard(nr,nc)) {
+              const ownP = this.view.ownBoard[nr][nc];
+              if (ownP && colorOf(ownP) === this.color) break; // blocked by own piece
+              if (this.guess[nr][nc] && colorOf(this.guess[nr][nc]) === enemyColor) {
+                foundEnemy = true; break; // already modeled
+              }
+              if (!this.guess[nr][nc] && !ownP) {
+                this.guess[nr][nc] = plant;
+                changed = true;
+                break;
+              }
+              nr += dr; nc += dc;
+            }
+            if (foundEnemy) break;
+          }
+        }
+      }
+      if (changed) this.rankedMoves = null;
+    }
+
     processOpponentMove() {
       this.view.opponentSilentMove();
     }

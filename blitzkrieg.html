@@ -2394,8 +2394,10 @@ function attemptHumanMoveAi(desired, me) {
   moveInputEl.value = '';
   if (result.result) { endAiGame(result.result); return; }
   // Teach the AI what it can infer from the human's move:
-  // If the human captured one of the AI's pieces, the AI now knows a human piece
-  // sits on that square and that its own piece is gone.
+  // 1. If the human captured one of the AI's pieces, the AI knows a human
+  //    piece now sits there and its own piece is gone.
+  // 2. If the human's move put the AI in check, use the announced direction
+  //    to locate the attacker on the AI's guess board.
   for (const a of result.announcements) {
     if (a.kind === 'capture' && a.captorColor === me) {
       const sq = sqParse(a.square);
@@ -2404,9 +2406,15 @@ function attemptHumanMoveAi(desired, me) {
         ai.guess[sq.r][sq.c] = aiColor === 'w' ? 'p' : 'P';         // human piece is here now
       }
     }
+    if (a.kind === 'check' && a.checkedColor === aiColor) {
+      ai.applyCheckHint(a.directions);
+    }
   }
   ai.processOpponentMove();
   ai.newTurn();
+  // Tell the AI how many real pawn captures it has this turn so it can fill
+  // in any hidden enemy pieces near its pawns that its guess board missed.
+  ai.applyPawnTryHint(referee.pawnTries(aiColor));
   beginAiTurn();
 }
 
