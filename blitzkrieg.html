@@ -1147,7 +1147,8 @@ let selectedDummy = null; // {source:'board',r,c} | {source:'tray',idx}
 let dummyModeActive = false;
 
 // Replay state
-let moveHistory = [];     // array of full board snapshots (index 0 = start position)
+// Each entry: { board, move } where move is {from,to} or null (for index 0 = start)
+let moveHistory = [];
 let replayMode = false;
 let replayIndex = 0;
 
@@ -1366,7 +1367,8 @@ function buildBoard() {
 function boardToRender() {
   // Decide which board to paint, and whether to reveal the opponent's pieces.
   if (replayMode) {
-    return { board: moveHistory[replayIndex] || emptyBoard(), reveal: true };
+    const entry = moveHistory[replayIndex];
+    return { board: (entry && entry.board) || emptyBoard(), reveal: true };
   }
   if (mode === 'online-spectator') {
     return { board: spectator.board || emptyBoard(), reveal: true };
@@ -1424,7 +1426,13 @@ function renderBoard() {
   }
 
   // Last-move highlights
-  if (mode === 'online-spectator') {
+  if (replayMode) {
+    const entry = moveHistory[replayIndex];
+    if (entry && entry.move) {
+      highlightSq(entry.move.from.r, entry.move.from.c, 'lastmove');
+      highlightSq(entry.move.to.r, entry.move.to.c, 'lastmove');
+    }
+  } else if (mode === 'online-spectator') {
     for (const lm of [spectator.lastMoveByWhite, spectator.lastMoveByBlack]) {
       if (lm) { highlightSq(lm.from.r, lm.from.c, 'lastmove'); highlightSq(lm.to.r, lm.to.c, 'lastmove'); }
     }
@@ -2117,7 +2125,7 @@ function startAiGame() {
   ai = new AIPlayer(aiColor, document.getElementById('aiSelect').value);
   selectedSq = null;
   gameActive = true;
-  moveHistory = [cloneBoard(initialPosition())];
+  moveHistory = [{ board: cloneBoard(initialPosition()), move: null }];
   replayMode = false;
   replayIndex = 0;
   // UI
@@ -2203,7 +2211,7 @@ function attemptHumanMoveAi(desired, me) {
     return;
   }
   human.applyOwnMove(result.move);
-  moveHistory.push(cloneBoard(referee.state.board));
+  moveHistory.push({ board: cloneBoard(referee.state.board), move: { from: result.move.from, to: result.move.to } });
   selectedSq = null;
   applyAnnouncementsToView(result.announcements, true);
   if (!result.result) {
@@ -2271,7 +2279,7 @@ function finishAiTurn(turnStart, fn) {
   setTimeout(fn, wait);
 }
 function submitAiMoveResult(result, chosen) {
-  moveHistory.push(cloneBoard(referee.state.board));
+  moveHistory.push({ board: cloneBoard(referee.state.board), move: { from: result.move.from, to: result.move.to } });
   const mv = result.move;
   ai.view.applyOwnMove(mv);
   for (const a of result.announcements) {
@@ -2853,7 +2861,7 @@ function showGameOverModal(r, myC, oppC) {
 // ====================================================================
 function enterReplay() {
   replayMode = true;
-  replayIndex = moveHistory.length - 1; // start at final position
+  replayIndex = 0; // start at the beginning
   document.getElementById('replayControls').style.display = '';
   document.getElementById('gameControls').style.display = 'none';
   updateReplayCounter();
