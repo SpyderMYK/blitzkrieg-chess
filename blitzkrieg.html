@@ -2989,6 +2989,9 @@ function saveVoiceVolumePref() {
 }
 
 async function boot() {
+  // Capture URL code BEFORE showLobby() clears the hash.
+  const code = readUrlCode();
+
   // Initial lobby render
   buildBoard();
   renderBoard();
@@ -3007,7 +3010,7 @@ async function boot() {
   }
 
   // If URL has a code and we have a token, try to resume as player.
-  const code = readUrlCode();
+  // (code was read above, before showLobby() cleared the hash)
   if (code) {
     const saved = loadToken(code);
     if (saved && saved.token) {
