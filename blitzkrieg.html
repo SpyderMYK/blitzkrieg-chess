@@ -961,7 +961,7 @@
 </div>
 
 <canvas id="confetti"></canvas>
-<div id="version-badge">v2.18</div>
+<div id="version-badge">v2.19</div>
 
 <script src="engine.js"></script>
 <script>
@@ -3079,12 +3079,15 @@ function updateReplayCounter() {
   const moveNum = replayIndex;           // 0 = start, total = last move
   document.getElementById('replayCounter').textContent =
     moveNum === 0 ? 'Start' : `Move ${moveNum}/${total}`;
-  document.getElementById('replayPrevBtn').disabled = replayIndex === 0;
-  // Next is never disabled — at the end it wraps back to the start
+  // Neither button is ever disabled — both ends wrap around
+  document.getElementById('replayPrevBtn').disabled = false;
   document.getElementById('replayNextBtn').disabled = false;
 }
 document.getElementById('replayPrevBtn').addEventListener('click', () => {
-  if (replayIndex > 0) { replayIndex--; updateReplayCounter(); renderBoard(); }
+  // At the start, wrap back to the final move
+  replayIndex = replayIndex > 0 ? replayIndex - 1 : moveHistory.length - 1;
+  updateReplayCounter();
+  renderBoard();
 });
 document.getElementById('replayNextBtn').addEventListener('click', () => {
   // At the final move, wrap back to the beginning
