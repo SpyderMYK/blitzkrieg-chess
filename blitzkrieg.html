@@ -955,14 +955,13 @@
     <p id="gameOverText"></p>
     <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
       <button class="primary" onclick="document.getElementById('gameOverModal').classList.remove('show')">Close</button>
-      <button id="reviewFromStartBtn" style="display:none;" onclick="document.getElementById('gameOverModal').classList.remove('show'); enterReplay(false);">&#8592; Review from Start</button>
-      <button id="reviewFromEndBtn"   style="display:none;" class="primary" onclick="document.getElementById('gameOverModal').classList.remove('show'); enterReplay(true);">Review from End &#8594;</button>
+      <button id="reviewGameBtn" style="display:none;" onclick="document.getElementById('gameOverModal').classList.remove('show'); enterReplay();">Review Game</button>
     </div>
   </div>
 </div>
 
 <canvas id="confetti"></canvas>
-<div id="version-badge">v2.17</div>
+<div id="version-badge">v2.18</div>
 
 <script src="engine.js"></script>
 <script>
@@ -3048,12 +3047,9 @@ function applyGameOverUI(r, myC, oppC, opts) {
   gameOverText.textContent = text;
   // Victory class drives the title pulse animation.
   if (gameOverModalInner) gameOverModalInner.classList.toggle('victory', iWon);
-  // Show review buttons only in AI mode (we have full history there)
-  const showReview = mode === 'ai' && moveHistory.length > 1;
-  const reviewStartBtn = document.getElementById('reviewFromStartBtn');
-  const reviewEndBtn   = document.getElementById('reviewFromEndBtn');
-  if (reviewStartBtn) reviewStartBtn.style.display = showReview ? '' : 'none';
-  if (reviewEndBtn)   reviewEndBtn.style.display   = showReview ? '' : 'none';
+  // Show "Review Game" button only in AI mode (we have full history there)
+  const reviewBtn = document.getElementById('reviewGameBtn');
+  if (reviewBtn) reviewBtn.style.display = (mode === 'ai' && moveHistory.length > 1) ? '' : 'none';
   gameOverModal.classList.add('show');
   if (iWon) celebrateVictory();
 }
@@ -3064,9 +3060,9 @@ function showGameOverModal(r, myC, oppC) {
 // ====================================================================
 // REPLAY
 // ====================================================================
-function enterReplay(startAtEnd = true) {
+function enterReplay() {
   replayMode = true;
-  replayIndex = startAtEnd ? moveHistory.length - 1 : 0;
+  replayIndex = moveHistory.length - 1; // always start at final position
   document.getElementById('replayControls').style.display = '';
   document.getElementById('gameControls').style.display = 'none';
   updateReplayCounter();
@@ -3084,13 +3080,17 @@ function updateReplayCounter() {
   document.getElementById('replayCounter').textContent =
     moveNum === 0 ? 'Start' : `Move ${moveNum}/${total}`;
   document.getElementById('replayPrevBtn').disabled = replayIndex === 0;
-  document.getElementById('replayNextBtn').disabled = replayIndex === moveHistory.length - 1;
+  // Next is never disabled — at the end it wraps back to the start
+  document.getElementById('replayNextBtn').disabled = false;
 }
 document.getElementById('replayPrevBtn').addEventListener('click', () => {
   if (replayIndex > 0) { replayIndex--; updateReplayCounter(); renderBoard(); }
 });
 document.getElementById('replayNextBtn').addEventListener('click', () => {
-  if (replayIndex < moveHistory.length - 1) { replayIndex++; updateReplayCounter(); renderBoard(); }
+  // At the final move, wrap back to the beginning
+  replayIndex = replayIndex < moveHistory.length - 1 ? replayIndex + 1 : 0;
+  updateReplayCounter();
+  renderBoard();
 });
 document.getElementById('replayExitBtn').addEventListener('click', exitReplay);
 
