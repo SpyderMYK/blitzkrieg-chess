@@ -733,6 +733,41 @@
         halfmove: 0, fullmove: 1
       };
     }
+    // Build pawn capture probes toward diagonal squares that are unknown (no guess placed).
+    // These are appended after the main ranked moves so the AI tries them when its
+    // primary plan runs out. Ordered by advancement + centrality so the most
+    // promising probes come first.
+    buildPawnProbes() {
+      const probes = [];
+      const dir = this.color === 'w' ? -1 : 1;
+      const pawnChar = this.color === 'w' ? 'P' : 'p';
+      const enemyColor = this.color === 'w' ? 'b' : 'w';
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          if (this.view.ownBoard[r][c] !== pawnChar) continue;
+          for (const dc of [-1, 1]) {
+            const nr = r + dir, nc = c + dc;
+            if (!onBoard(nr, nc)) continue;
+            // Skip if we know a friendly piece is there
+            if (isSameColor(this.view.ownBoard[nr][nc], this.color)) continue;
+            if (isSameColor(this.guess[nr][nc], this.color)) continue;
+            // Skip if already guessed as enemy — the main search already covers those
+            if (this.guess[nr][nc] && colorOf(this.guess[nr][nc]) === enemyColor) continue;
+            // Unknown square: worth probing
+            probes.push({ from: {r, c}, to: {r: nr, c: nc}, piece: 'P', capture: true });
+          }
+        }
+      }
+      // Most-advanced pawns first; break ties by proximity to center files
+      probes.sort((a, b) => {
+        const aAdv = this.color === 'w' ? 7 - a.to.r : a.to.r;
+        const bAdv = this.color === 'w' ? 7 - b.to.r : b.to.r;
+        const aCtr = Math.abs(a.to.c - 3.5);
+        const bCtr = Math.abs(b.to.c - 3.5);
+        return (bAdv - aAdv) || (aCtr - bCtr);
+      });
+      return probes;
+    }
     pickMove() {
       if (!this.rankedMoves) {
         const searchState = this.buildGuessState();
@@ -740,7 +775,11 @@
         if (this.strength === 'easy')       { depth = 1; useQ = false; jitter = 150; }
         else if (this.strength === 'normal'){ depth = 2; useQ = false; jitter = 20;  }
         else                                 { depth = 3; useQ = true;  jitter = 4;   }
-        this.rankedMoves = searchAndRank(searchState, depth, useQ, jitter);
+        // Main ranked moves first, then pawn probes toward unknown squares
+        this.rankedMoves = [
+          ...searchAndRank(searchState, depth, useQ, jitter),
+          ...this.buildPawnProbes()
+        ];
       }
       for (const m of this.rankedMoves) {
         if (!this.rejected.some(rm =>
@@ -760,8 +799,8 @@
       if (move.piece === 'P' && !move.capture) {
         this.guess[move.to.r][move.to.c] = enemyChar;
       } else if (move.piece === 'P' && move.capture) {
-        const cur = this.guess[move.to.r][move.to.c];
-        if (cur && colorOf(cur) !== this.color) this.guess[move.to.r][move.to.c] = null;
+        // Confirmed empty right now — always clear, even if there was no prior guess.
+        this.guess[move.to.r][move.to.c] = null;
       } else if (['R','B','Q'].includes(move.piece) && !move.capture) {
         const dr = Math.sign(move.to.r - move.from.r);
         const dc = Math.sign(move.to.c - move.from.c);

@@ -2393,6 +2393,18 @@ function attemptHumanMoveAi(desired, me) {
   renderCapturedRows();
   moveInputEl.value = '';
   if (result.result) { endAiGame(result.result); return; }
+  // Teach the AI what it can infer from the human's move:
+  // If the human captured one of the AI's pieces, the AI now knows a human piece
+  // sits on that square and that its own piece is gone.
+  for (const a of result.announcements) {
+    if (a.kind === 'capture' && a.captorColor === me) {
+      const sq = sqParse(a.square);
+      if (sq) {
+        ai.view.ownBoard[sq.r][sq.c] = null;                          // AI's piece is gone
+        ai.guess[sq.r][sq.c] = aiColor === 'w' ? 'p' : 'P';         // human piece is here now
+      }
+    }
+  }
   ai.processOpponentMove();
   ai.newTurn();
   beginAiTurn();
